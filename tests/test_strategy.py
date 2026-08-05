@@ -2,13 +2,8 @@ from kaggriculture_agent.strategy import choose_action
 
 
 def observation(tile=None, seeds=None):
-    farm = {
-        "money": 3000.0,
-        "farmer": [4, 4],
-        "hands": [],
-        "hires_today": 0,
-        "tiles": [[None for _ in range(10)] for _ in range(10)],
-    }
+    farm = {"money": 3000.0, "farmer": [4, 4], "hands": [], "hires_today": 0,
+            "tiles": [[None for _ in range(10)] for _ in range(10)]}
     farm["tiles"][4][4] = tile
     return {
         "player": 0,
