@@ -1,6 +1,3 @@
-Exit code: 0
-Wall time: 8.4 seconds
-Output:
 # 実験履歴
 
 ## 2026-08-05: baseline-0.1
@@ -22,3 +19,9 @@ Output:
 
 注: OpenSpielの未登録ゲームに関する警告がstderrへ出力されたが、Kaggricultureの実行と終了ステータスは正常だった。
 
+## 2026-08-05: strong-replay-analysis
+
+- 対象: `90041552.json`, `90073673.json`
+- 共通所見: 約300回のHIRE、土地2回拡張、牛8・羊6、WHEAT/STRAWBERRY/MELONの併用、動物のFEED/CARE、肥料回収・施肥。
+- 結論: 現行版の作物ルート微調整では差が埋まらない。人員・土地・動物・飼料・肥料を含む段階的な経済ループを実装する。
+- 実装計画: [strong-policy-plan.md](strong-policy-plan.md)
