@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import os
 import csv
 import io
 import json
-import os
-import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 
 
 COMPETITION = "kaggriculture"
@@ -25,9 +25,23 @@ def verify_competition_is_open() -> None:
     config = json.loads(SUBMISSION_CONFIG.read_text(encoding="utf-8"))
     if config["competition"] != COMPETITION:
         raise RuntimeError("Submission configuration names a different competition.")
-    configured_deadline = datetime.fromisoformat(config["deadline_utc"])
-    if datetime.now(timezone.utc) >= configured_deadline:
+    deadline_at = datetime.fromisoformat(config["deadline_utc"])
+    if datetime.now(timezone.utc) >= deadline_at:
         raise RuntimeError(f"Kaggriculture submission deadline has passed: {config['deadline_utc']}")
+
+    raw = run_cli("competitions", "list", "--search", COMPETITION, "--format", "json")
+    data = json.loads(raw)
+    items = data if isinstance(data, list) else data.get("data", data.get("competitions", []))
+    match = next((item for item in items if item.get("ref") == COMPETITION), None)
+    if not match:
+        raise RuntimeError("Kaggriculture is not visible to the authenticated Kaggle account.")
+    deadline = match.get("deadline")
+    if deadline:
+        live_deadline = datetime.fromisoformat(str(deadline).replace("Z", "+00:00"))
+        if live_deadline.tzinfo is None:
+            live_deadline = live_deadline.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) >= live_deadline:
+            raise RuntimeError(f"Kaggriculture submission deadline has passed: {deadline}")
 
 
 def verify_submission_budget(message: str) -> None:
@@ -49,7 +63,7 @@ def verify_submission_budget(message: str) -> None:
 
 def submit(message: str) -> str:
     result = subprocess.run(
-        ["kaggle", "competitions", "submit", COMPETITION, "-f", str(PACKAGE), "-m", message],
+        ["kaggle", "competitions", "submit", COMPETITION, "-f", str(PACKAGE), "-m", message, "--wait", "600"],
         check=True,
         capture_output=True,
         text=True,
