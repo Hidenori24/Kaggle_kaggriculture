@@ -75,7 +75,11 @@ def main() -> int:
         verify_competition_is_open()
         verify_submission_budget(message)
         print(submit(message), end="")
-    except (RuntimeError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+    except subprocess.CalledProcessError as exc:
+        details = (exc.stderr or exc.stdout or str(exc)).strip()
+        print(f"Kaggle CLI failed (exit {exc.returncode}): {details}", file=sys.stderr)
+        return 2
+    except (RuntimeError, json.JSONDecodeError) as exc:
         print(f"Submission stopped safely: {exc}", file=sys.stderr)
         return 2
     return 0
