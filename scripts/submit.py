@@ -48,8 +48,9 @@ def verify_submission_budget(message: str) -> None:
 
 
 def submit(message: str) -> str:
+    # kaggle 2.2.4 does not support the documented --wait option.
     result = subprocess.run(
-        ["kaggle", "competitions", "submit", COMPETITION, "-f", str(PACKAGE), "-m", message, "--wait", "600"],
+        ["kaggle", "competitions", "submit", COMPETITION, "-f", str(PACKAGE), "-m", message],
         check=True,
         capture_output=True,
         text=True,
