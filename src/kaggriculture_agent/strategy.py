@@ -128,10 +128,10 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
         hire_budget = sum([1, 1, 2, 3, 5, 8][hires_today : hires_today + remaining])
         seeds = _value(private, "seeds", {}) or {}
         purchase_count = config.seed_purchase_count if step == 0 else 3
-        if step != 0 and seeds.get(config.seed_crop, 0) >= 3:
+        if step != 0 and seeds.get(config.seed_crop, 0) >= 12:
             purchase_count = 0
         seed_cost = 80 * purchase_count
-        if purchase_count and money >= hire_budget + seed_cost + 100:
+        if purchase_count and money >= hire_budget + seed_cost + 300:
             market.append(["BUY_SEED", config.seed_crop, purchase_count])
         if money >= hire_budget + 100:
             market.extend([["HIRE"] for _ in range(remaining)])
