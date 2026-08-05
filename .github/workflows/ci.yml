@@ -1,0 +1,27 @@
+Exit code: 0
+Wall time: 8.2 seconds
+Output:
+name: CI
+
+on:
+  push:
+    branches: [main, 'feature/**', 'agent/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+      - run: python scripts/simulate.py --episodes 3
+
