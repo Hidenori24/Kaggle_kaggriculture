@@ -1,6 +1,3 @@
-Exit code: 0
-Wall time: 8.3 seconds
-Output:
 import pytest
 
 
