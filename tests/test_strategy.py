@@ -1,6 +1,3 @@
-Exit code: 0
-Wall time: 8.9 seconds
-Output:
 from kaggriculture_agent.strategy import choose_action
 
 

@@ -1,6 +1,3 @@
-Exit code: 0
-Wall time: 1.3 seconds
-Output:
 # Kaggriculture Agent
 
 Kaggriculture向けの、公式 `kaggle-environments` SDKで実行できるルールベースエージェントです。
