@@ -78,6 +78,7 @@ def _unit_action(
     inventory: dict[str, int] | None = None,
     target: tuple[int, int] | None = None,
 ) -> list[Any]:
+    """Choose one action for the farmer or one hired hand."""
     inventory = inventory or {}
     if isinstance(tile, dict):
         kind = tile.get("kind")
@@ -99,7 +100,10 @@ def _unit_action(
     seeds = _value(private, "seeds", {}) or {}
     if tile is None and seeds.get(config.seed_crop, 0) > 0:
         return ["PLANT", config.seed_crop]
-    return _move_towards(position, target or _next_route_target(position, config.active_quadrant_size))
+    return _move_towards(
+        position,
+        target or _next_route_target(position, config.active_quadrant_size),
+    )
 
 
 def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[str, Any]:
@@ -125,6 +129,9 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
     hires_today = int(_value(farm, "hires_today", 0) or 0)
     if step == 0 or hour == 0:
         remaining = max(0, config.max_hands_per_day - hires_today)
+        # HIRE costs follow a small Fibonacci sequence; reserve cash for the
+        # orders so the agent never spends itself into a dead end before the
+        # first melon harvest.
         hire_budget = sum([1, 1, 2, 3, 5, 8][hires_today : hires_today + remaining])
         seeds = _value(private, "seeds", {}) or {}
         purchase_count = config.seed_purchase_count if step == 0 else 3
@@ -141,7 +148,12 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
     inventories = _value(private, "inventories", []) or []
     farmer_inventory = inventories[0] if inventories else {}
     farmer_action = _unit_action(
-        farmer_position, _tile_at(tiles, farmer_position), private, day, config, farmer_inventory
+        farmer_position,
+        _tile_at(tiles, farmer_position),
+        private,
+        day,
+        config,
+        farmer_inventory,
     )
 
     hand_actions: list[list[Any]] = []
@@ -164,7 +176,3 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
         )
 
     return {"farmer": farmer_action, "hands": hand_actions, "market": market}
-
-
-if __name__ == "__main__":
-    pass
