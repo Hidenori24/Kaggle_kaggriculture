@@ -21,3 +21,4 @@ jobs:
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m pytest -q
       - run: python scripts/simulate.py --episodes 3
+      - run: python scripts/package_submission.py --output dist/submission.tar.gz
