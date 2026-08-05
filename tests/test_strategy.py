@@ -2,7 +2,8 @@ from kaggriculture_agent.strategy import choose_action
 
 
 def observation(tile=None, seeds=None):
-    farm = {"farmer": [4, 4], "tiles": [[None for _ in range(10)] for _ in range(10)]}
+    farm = {"money": 3000.0, "farmer": [4, 4], "hands": [], "hires_today": 0,
+            "tiles": [[None for _ in range(10)] for _ in range(10)]}
     farm["tiles"][4][4] = tile
     return {
         "player": 0,
@@ -10,18 +11,18 @@ def observation(tile=None, seeds=None):
         "day": 0,
         "hour": 1,
         "farms": [farm, farm.copy()],
-        "private": {"seeds": seeds or {"CARROT": 1}},
+        "private": {"seeds": seeds or {"MELON": 1}},
     }
 
 
 def test_first_turn_buys_baseline_seeds():
     action = choose_action({**observation(), "step": 0})
-    assert action["market"] == [["BUY_SEED", "CARROT", 20]]
+    assert ["BUY_SEED", "MELON", 15] in action["market"]
 
 
 def test_empty_tile_plants_when_seed_is_available():
     action = choose_action(observation())
-    assert action["farmer"] == ["PLANT", "CARROT"]
+    assert action["farmer"] == ["PLANT", "MELON"]
 
 
 def test_unwatered_plant_is_watered_before_harvest():
