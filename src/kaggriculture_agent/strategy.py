@@ -128,10 +128,10 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
         hire_budget = sum([1, 1, 2, 3, 5, 8][hires_today : hires_today + remaining])
         seeds = _value(private, "seeds", {}) or {}
         purchase_count = config.seed_purchase_count if step == 0 else 3
-        if step != 0 and seeds.get(config.seed_crop, 0) >= 3:
+        if step != 0 and seeds.get(config.seed_crop, 0) >= 12:
             purchase_count = 0
         seed_cost = 80 * purchase_count
-        if purchase_count and money >= hire_budget + seed_cost + 100:
+        if purchase_count and money >= hire_budget + seed_cost + 300:
             market.append(["BUY_SEED", config.seed_crop, purchase_count])
         if money >= hire_budget + 100:
             market.extend([["HIRE"] for _ in range(remaining)])
@@ -148,6 +148,9 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
     for index, hand_position in enumerate(_value(farm, "hands", []) or [], start=1):
         hand_position = list(hand_position)
         inventory = inventories[index] if index < len(inventories) else {}
+        target = _route_cell(index - 1, day, config.active_quadrant_size)
+        if tuple(hand_position) == target:
+            target = _next_route_target(hand_position, config.active_quadrant_size)
         hand_actions.append(
             _unit_action(
                 hand_position,
@@ -156,7 +159,7 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
                 day,
                 config,
                 inventory,
-                _route_cell(index - 1, day, config.active_quadrant_size),
+                target,
             )
         )
 
