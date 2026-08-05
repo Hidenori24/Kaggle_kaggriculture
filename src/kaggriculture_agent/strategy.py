@@ -31,13 +31,22 @@ def _move_towards(current: list[int], target: tuple[int, int]) -> list[str]:
     return ["PASS"]
 
 
-def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[str, Any]:
-    """Choose a safe deterministic crop-growing action.
+def _next_route_target(position: list[int], size: int) -> tuple[int, int]:
+    """Return the next cell on a bottom-right-to-top-left serpentine route."""
+    route: list[tuple[int, int]] = []
+    for y in range(size - 1, -1, -1):
+        xs = range(size - 1, -1, -1) if (size - 1 - y) % 2 == 0 else range(size)
+        route.extend((x, y) for x in xs)
+    current = (position[0], position[1])
+    try:
+        index = route.index(current)
+    except ValueError:
+        return route[0]
+    return route[(index + 1) % len(route)]
 
-    The initial baseline intentionally uses only the unlocked NW quadrant and
-    avoids animals, hired hands, and land purchases. This keeps behavior easy
-    to inspect while providing a stable foundation for later strategies.
-    """
+
+def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[str, Any]:
+    """Choose a safe deterministic crop-growing action."""
     step = int(_value(obs, "step", 0) or 0)
     day = int(_value(obs, "day", step // 24) or 0)
     farms = _value(obs, "farms", []) or []
@@ -45,6 +54,10 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
     private = _value(obs, "private", {}) or {}
 
     market: list[list[Any]] = []
+    shed = _value(private, "shed", {}) or {}
+    quantity = int(shed.get(config.seed_crop, 0) or 0)
+    if quantity > 0:
+        market.append(["SELL", config.seed_crop, quantity])
     if step == 0:
         market.append(["BUY_SEED", config.seed_crop, config.seed_purchase_count])
 
@@ -67,14 +80,5 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
     if tile is None and seeds.get(config.seed_crop, 0) > 0:
         return {"farmer": ["PLANT", config.seed_crop], "market": market}
 
-    # Serpentine traversal of the initially unlocked 5x5 quadrant.
-    row = min(y, config.active_quadrant_size - 1)
-    col = min(x, config.active_quadrant_size - 1)
-    route_col = col if row % 2 == 0 else config.active_quadrant_size - 1 - col
-    next_index = (row * config.active_quadrant_size + route_col + 1) % (config.active_quadrant_size**2)
-    next_row, next_col = divmod(next_index, config.active_quadrant_size)
-    if next_row % 2 == 1:
-        next_col = config.active_quadrant_size - 1 - next_col
-    target = (next_col, next_row)
+    target = _next_route_target(position, config.active_quadrant_size)
     return {"farmer": _move_towards(position, target), "market": market}
-
