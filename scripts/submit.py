@@ -49,7 +49,7 @@ def verify_submission_budget(message: str) -> None:
 
 def submit(message: str) -> str:
     result = subprocess.run(
-        ["kaggle", "competitions", "submit", COMPETITION, "-f", str(PACKAGE), "-m", message, "--wait", "600"],
+        ["kaggle", "competitions", "submit", COMPETITION, "-f", str(PACKAGE), "-m", message],
         check=True,
         capture_output=True,
         text=True,
