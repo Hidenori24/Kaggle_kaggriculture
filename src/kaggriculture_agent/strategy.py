@@ -148,6 +148,9 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
     for index, hand_position in enumerate(_value(farm, "hands", []) or [], start=1):
         hand_position = list(hand_position)
         inventory = inventories[index] if index < len(inventories) else {}
+        target = _route_cell(index - 1, day, config.active_quadrant_size)
+        if tuple(hand_position) == target:
+            target = _next_route_target(hand_position, config.active_quadrant_size)
         hand_actions.append(
             _unit_action(
                 hand_position,
@@ -156,7 +159,7 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
                 day,
                 config,
                 inventory,
-                _route_cell(index - 1, day, config.active_quadrant_size),
+                target,
             )
         )
 
