@@ -1,0 +1,17 @@
+Exit code: 0
+Wall time: 8.2 seconds
+Output:
+[project]
+name = "kaggriculture-agent"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["kaggle-environments==1.32.4"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+

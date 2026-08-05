@@ -1,0 +1,5 @@
+Exit code: 0
+Wall time: 8.2 seconds
+Output:
+kaggle-environments==1.32.4
+

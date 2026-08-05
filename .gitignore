@@ -1,0 +1,13 @@
+Exit code: 0
+Wall time: 1.1 seconds
+Output:
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+simulation.json
+dist/
+build/
+*.egg-info/
+

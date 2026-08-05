@@ -1,0 +1,35 @@
+Exit code: 0
+Wall time: 1 seconds
+Output:
+name: Kaggle submission
+
+on:
+  push:
+    branches: [submission]
+
+concurrency:
+  group: kaggriculture-submission
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+      - run: python scripts/simulate.py --episodes 5 | tee simulation.json
+      - name: Stop safely until official format is confirmed
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGRICULTURE_SUBMISSION_FORMAT_CONFIRMED: ${{ vars.KAGGRICULTURE_SUBMISSION_FORMAT_CONFIRMED }}
+        run: python scripts/submit.py
+

@@ -1,0 +1,10 @@
+Exit code: 0
+Wall time: 9.1 seconds
+Output:
+{
+  "seed_crop": "CARROT",
+  "seed_purchase_count": 20,
+  "board_size": 10,
+  "active_quadrant_size": 5
+}
+
