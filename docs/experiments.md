@@ -110,3 +110,10 @@
 - 10×10盤の納屋入口は4×4、5×4、4×5、5×5である。区画辺長5を盤面サイズとして扱っていたバグを修正し、納屋入出庫を検証するテストを追加した。
 - 検証結果: `python -m pytest -q` は11件成功、`python scripts/simulate.py --episodes 3` は`31,603 / 31,603 / 30,348`。本提出候補はこの安全弁付き版とする。
 
+## 2026-08-06: submission-42-capability-safe
+
+- main CI #64 成功後、`submission`ブランチのコミット`6d2fc0e4373e1c5bc82eb2712b2ea6468faa3933`で提出。
+- Kaggle提出Actions Run #42: pytest 11件成功、5エピソードは`31,603 / 31,603 / 30,348 / 28,944 / 31,603`。
+- 提出パッケージSHA-256: `7f8b43a79f41bfeb4025f1d35c5df7b3141f454976bf1b8320be2027d8fc099f`。
+- Kaggle APIは`Successfully submitted to Kaggriculture`を返し、Actions Summaryでは当日残り2回。Kaggle側の対戦スコアは反映待ち。
+
