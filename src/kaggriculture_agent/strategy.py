@@ -18,7 +18,7 @@ class BaselineConfig:
     seed_crop: str = "MELON"
     seed_purchase_count: int = 15
     active_quadrant_size: int = 5
-    max_hands_per_day: int = 6
+    max_hands_per_day: int = 10
 
 
 def _value(obj: Any, key: str, default: Any = None) -> Any:
@@ -129,10 +129,8 @@ def choose_action(obs: Any, config: BaselineConfig = BaselineConfig()) -> dict[s
     hires_today = int(_value(farm, "hires_today", 0) or 0)
     if step == 0 or hour == 0:
         remaining = max(0, config.max_hands_per_day - hires_today)
-        # HIRE costs follow a small Fibonacci sequence; reserve cash for the
-        # orders so the agent never spends itself into a dead end before the
-        # first melon harvest.
-        hire_budget = sum([1, 1, 2, 3, 5, 8][hires_today : hires_today + remaining])
+        hire_costs = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]
+        hire_budget = sum(hire_costs[hires_today : hires_today + remaining])
         seeds = _value(private, "seeds", {}) or {}
         purchase_count = config.seed_purchase_count if step == 0 else 3
         if step != 0 and seeds.get(config.seed_crop, 0) >= 12:
