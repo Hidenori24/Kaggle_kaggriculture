@@ -22,26 +22,21 @@ def run_cli(*args: str) -> str:
 
 
 def verify_competition_is_open() -> None:
+    """Validate the repository's verified deadline without using list search.
+
+    Kaggriculture is a simulation competition and may not be returned by the
+    CLI's public ``competitions list --search`` endpoint even when the
+    authenticated account has joined it.  The previous visibility check
+    therefore stopped valid submissions before ``competitions submit`` ran.
+    The configured deadline is recorded from the official competition page;
+    Kaggle itself remains the authority for access and live submission state.
+    """
     config = json.loads(SUBMISSION_CONFIG.read_text(encoding="utf-8"))
     if config["competition"] != COMPETITION:
         raise RuntimeError("Submission configuration names a different competition.")
     deadline_at = datetime.fromisoformat(config["deadline_utc"])
     if datetime.now(timezone.utc) >= deadline_at:
         raise RuntimeError(f"Kaggriculture submission deadline has passed: {config['deadline_utc']}")
-
-    raw = run_cli("competitions", "list", "--search", COMPETITION, "--format", "json")
-    data = json.loads(raw)
-    items = data if isinstance(data, list) else data.get("data", data.get("competitions", []))
-    match = next((item for item in items if item.get("ref") == COMPETITION), None)
-    if not match:
-        raise RuntimeError("Kaggriculture is not visible to the authenticated Kaggle account.")
-    deadline = match.get("deadline")
-    if deadline:
-        live_deadline = datetime.fromisoformat(str(deadline).replace("Z", "+00:00"))
-        if live_deadline.tzinfo is None:
-            live_deadline = live_deadline.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) >= live_deadline:
-            raise RuntimeError(f"Kaggriculture submission deadline has passed: {deadline}")
 
 
 def verify_submission_budget(message: str) -> None:
@@ -63,7 +58,7 @@ def verify_submission_budget(message: str) -> None:
 
 def submit(message: str) -> str:
     result = subprocess.run(
-        ["kaggle", "competitions", "submit", COMPETITION, "-f", str(PACKAGE), "-m", message, "--wait", "600"],
+        ["kaggle", "competitions", "submit", COMPETITION, "-f", str(PACKAGE), "-m", message],
         check=True,
         capture_output=True,
         text=True,
