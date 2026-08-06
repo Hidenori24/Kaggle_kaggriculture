@@ -70,3 +70,4 @@ def test_expansion_is_opt_in_and_buys_short_cycle_seed():
     assert not any(order[0] == "BUY_LAND" for order in safe_action["market"])
     assert ["BUY_LAND"] in expansion_action["market"]
     assert ["BUY_SEED", "WHEAT", 30] in expansion_action["market"]
+
