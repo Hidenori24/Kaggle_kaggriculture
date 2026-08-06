@@ -1,6 +1,3 @@
-Exit code: 0
-Wall time: 8.4 seconds
-Output:
 # 実験履歴
 
 ## 2026-08-05: baseline-0.1
@@ -22,3 +19,24 @@ Output:
 
 注: OpenSpielの未登録ゲームに関する警告がstderrへ出力されたが、Kaggricultureの実行と終了ステータスは正常だった。
 
+## 2026-08-05: strong-replay-analysis
+
+- 対象: `90041552.json`, `90073673.json`
+- 共通所見: 約300回のHIRE、土地2回拡張、牛8・羊6、WHEAT/STRAWBERRY/MELONの併用、動物のFEED/CARE、肥料回収・施肥。
+- 結論: 現行版の作物ルート微調整では差が埋まらない。人員・土地・動物・飼料・肥料を含む段階的な経済ループを実装する。
+- 実装計画: [strong-policy-plan.md](strong-policy-plan.md)
+
+## 2026-08-05: replay-analysis-90134794-90135506
+
+- 対象: `90134794.json`（自分 22,184、相手 40,096）、`90135506.json`（自分 31,453、相手 18,455）。
+- 自分の2試合の行動は同一で、NW区画のみ、MELONのみ、HIRE 180、BUY_SEED:MELON 60、SELL:MELON 136、HARVEST 40。`BUY_LAND`、動物、WHEAT、FEED、CARE、FERTILIZEは0回。
+- 敗戦相手は土地を拡張せず、HIRE 253、牛4・ガチョウ1、WHEAT種62、WHEAT購入36、FEED 101、CARE 98、COLLECT_FERTILIZER 93、HARVEST 135を実行していた。
+- 勝利した試合の相手は、初期からSTRAWBERRYと土地を購入したが、3区画開放後も`BUY_LAND`を17日目以降に196回繰り返し、WHEATを売って直後に買う循環も続けていた。これは拡張路線の失敗例であり、採用しない。
+- 次の実装順を確定した: (1) NW内でWHEAT・動物・肥料の循環、(2) 10人雇用と役割分担、(3) 資金・残日数・未開放区画を条件にした土地拡張、(4) 拡張後の作物面積利用。
+- 土地は「未開放区画があり、必要現金を残して購入できる場合に各区画1回だけ」とし、購入後に観測で`unlocked_quadrants`が変わらなければ再注文しない。
+- 飼料WHEATは販売対象から除外し、動物数と残日数に基づく予備在庫を確保する。
+
+## 2026-08-06: control-submission
+
+- 目的: 動物・飼料ループ実装前の現行版を比較基準としてKaggleへ1回提出。
+- 提出はGitHub Actionsのテスト・ローカルシミュレーション合格後に実行する。
