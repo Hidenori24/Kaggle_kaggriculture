@@ -79,3 +79,11 @@
 - `python scripts/simulate.py --episodes 3`: 31,603 / 31,603 / 30,348点、相手は全て0点。
 - 追加の10エピソード評価: 平均30,617.7、中央値31,603、最低28,944、最高31,603。10/10で相手を上回った。
 - 20シードの安定版中央値28,371点を全3試合で上回ったため、今回の区切りではこの安全な改善版を提出候補とする。動物・肥料ループは未統合のまま、次の実験へ分離する。
+
+## 2026-08-06: submission-34
+
+- GitHub Actions Run `31071666989` / job `92520688039` が成功。
+- 提出コミット: `5f58aaabb9df2e999c6b52d4e35d218cc5874baf`。
+- パッケージSHA-256: `c4473d3566db7b4a8efdda7d94166d6b71b960f650fe247237229eb02191b5ed`。
+- Actions Summary: `3 submissions remaining today`、`Successfully submitted to Kaggriculture`。
+- Kaggleの最終スコアは反映待ち。Actions上の提出成功とKaggle画面の採点結果は別タイミングで確認する。
