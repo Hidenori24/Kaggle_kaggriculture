@@ -117,3 +117,11 @@
 - 提出パッケージSHA-256: `7f8b43a79f41bfeb4025f1d35c5df7b3141f454976bf1b8320be2027d8fc099f`。
 - Kaggle APIは`Successfully submitted to Kaggriculture`を返し、Actions Summaryでは当日残り2回。Kaggle側の対戦スコアは反映待ち。
 
+## 2026-08-07: public-replay-policy-validation
+
+- 研究対象: [Kaggriculture Adaptive Replay Agent](https://www.kaggle.com/code/flexonafft/kaggriculture-adaptive-replay-agent)。公開ノートに含まれる、行動列を圧縮データとして保持し、観測状態に応じて安全補正する決定的方針を研究候補として分離した。
+- 現行エントリポイントとは独立に、公式SDK `kaggle-environments==1.32.4` の同一条件で評価した。
+- 現行版（random相手）: `31,603 / 31,603 / 30,348`、平均`31,184.7`。
+- 候補（random相手）: `208,717 / 195,337 / 178,254`、平均`194,102.7`。
+- 候補（現行版相手）: `181,790 / 183,823 / 193,156`。逆向きの現行版は`13,488 / 13,691 / 13,667`で、相手が変わっても優位性を確認した。
+- 固定行動列はそのまま信頼せず、入力異常時の安全戻り、手数・市場注文数の上限、最終売却補正を単体テストで検証する。Kaggle提出はCI・5シード評価・パッケージ検証の完了後に行う。
