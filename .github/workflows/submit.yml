@@ -36,3 +36,4 @@ jobs:
             echo
             cat submission-result.txt
           } >> "$GITHUB_STEP_SUMMARY"
+
