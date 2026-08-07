@@ -13,6 +13,8 @@ import copy
 import json
 import zlib
 
+from .economic_shadow import forecast_economy
+
 
 _ACTIONS = json.loads(zlib.decompress(base64.b85decode((
     'c-rk<O>Z2@k^L_`^Pv79Mft{&+LmCBC{WZkyo1JI0NXII@E&IOw%Gq}jYw8iSG;)fA~LH*jeKj6-Bpp1QCacv;>Az@clP&Re*Nd)'
@@ -524,7 +526,7 @@ def _terminal_market(obs, action):
     return action
 
 
-def agent(obs):
+def _base_agent(obs):
     try:
         step = _step(obs)
         action = _weed_repair_action(obs, _copy_action(_ACTIONS[step]), step)
@@ -544,8 +546,17 @@ def agent(obs):
         }
 
 
+def agent(obs):
+    action = _base_agent(obs)
+    # Shadow-only: forecast failures and results must never affect the action.
+    try:
+        forecast_economy(obs)
+    except Exception:
+        pass
+    return action
+
+
 def _kaggle_submission_entrypoint(obs):
     return agent(obs)
-
 
 
