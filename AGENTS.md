@@ -13,6 +13,9 @@
 ## Branches
 
 - `feature/*`: tests and development only.
+- `baseline/*`: immutable, known-good reference candidates; never submit directly.
+- `experiment/*`: branches created from a baseline or `submission`; CI and comparison only.
 - `main`: tested code and simulations only.
 - `submission`: an intentional, tested submission candidate. Pushing this branch may submit to Kaggle after the submission gate is enabled.
 
+Keep the best known agent in a `baseline/score-*` branch and tag. Do not submit an unvalidated `experiment/*` branch. Before updating `submission`, run the full validation gate and record the commit SHA, package SHA-256, submission ID, and score. Preserve the stable baseline if a challenger underperforms.
