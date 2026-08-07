@@ -50,7 +50,8 @@ def policies() -> dict[str, Callable[[Any], dict[str, Any]]]:
         "expanded-baseline": lambda obs: baseline(obs, BaselineConfig(enable_expansion=True)),
         "full-strategy": full_strategy,
         "raw-replay": raw_replay,
-        "replay-stable": replay_policy.agent,
+        "replay-base": replay_policy._base_agent,
+        "replay-shadow-market": replay_policy.agent,
     }
 
 
@@ -83,4 +84,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

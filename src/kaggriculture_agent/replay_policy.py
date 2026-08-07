@@ -169,6 +169,10 @@ _SELLABLE = (
     "STRAWBERRY", "MELON", "MILK", "WOOL", "WHEAT",
     "FERTILIZER", "EGG", "TOMATO", "CARROT",
 )
+_SHADOW_MARKET_START = len(_ACTIONS) - 48
+_SHADOW_MARKET_MIN_ADVANTAGE = 200.0
+_SHADOW_MARKET_MAX_ITEMS = 2
+_SHADOW_MARKET_MAX_BATCH = 8
 
 
 def _get(obj, key, default=None):
@@ -526,6 +530,53 @@ def _terminal_market(obs, action):
     return action
 
 
+def _shadow_market_overlay(obs, action):
+    """Add a tiny late-game SELL overlay when waiting is clearly costly."""
+    step = _step(obs)
+    if step < _SHADOW_MARKET_START:
+        return action
+    try:
+        report = forecast_economy(obs, horizons=(48, 72))
+        short = report["horizons"][48]
+        long = report["horizons"][72]
+        advantage = float(short["cash_plus_visible_value"]) - float(long["conservative_wait_value"])
+    except Exception:
+        return action
+    if advantage < _SHADOW_MARKET_MIN_ADVANTAGE:
+        return action
+
+    market = [list(order) for order in (action.get("market") or []) if order]
+    if any(order and str(order[0]).startswith("BUY_") for order in market):
+        return action
+    existing_sell = {
+        order[1] for order in market
+        if len(order) >= 3 and order[0] == "SELL"
+    }
+    remaining = _remaining_shed(obs, action)
+    prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
+    candidates = []
+    for item in _SELLABLE:
+        if item in existing_sell:
+            continue
+        quantity = max(0, int(remaining.get(item, 0) or 0))
+        try:
+            price = max(0.0, float(prices.get(item, 0) or 0))
+        except (TypeError, ValueError):
+            price = 0.0
+        if quantity and price:
+            candidates.append((price * quantity, price, item, quantity))
+    candidates.sort(reverse=True)
+    additions = 0
+    for _value, _price, item, quantity in candidates:
+        if additions >= _SHADOW_MARKET_MAX_ITEMS or len(market) >= 10:
+            break
+        market.append(["SELL", item, min(quantity, _SHADOW_MARKET_MAX_BATCH)])
+        additions += 1
+    if additions:
+        action["market"] = market[:10]
+    return action
+
+
 def _base_agent(obs):
     try:
         step = _step(obs)
@@ -548,7 +599,12 @@ def _base_agent(obs):
 
 def agent(obs):
     action = _base_agent(obs)
-    # Shadow-only: forecast failures and results must never affect the action.
+    try:
+        action = _shadow_market_overlay(obs, action)
+        action = _safe_market(obs, action)
+    except Exception:
+        pass
+    # Forecast diagnostics remain shadow-only; only the bounded market overlay above can alter SELL.
     try:
         forecast_economy(obs)
     except Exception:
@@ -558,5 +614,3 @@ def agent(obs):
 
 def _kaggle_submission_entrypoint(obs):
     return agent(obs)
-
-
