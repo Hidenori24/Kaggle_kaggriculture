@@ -32,6 +32,15 @@ python scripts/simulate.py --episodes 3
 
 Kaggle規約同意とGitHub Actions Secret登録はユーザー操作が必要です。提出形式が確定した後、`submission` ブランチへのpushを提出トリガーにします。現段階のActionsは、未確認の提出形式で誤提出しないよう停止します。
 
+## ブランチ運用
+
+安定版の保存、改善候補の検証、Kaggle提出の境界は [docs/branch-operation.md](docs/branch-operation.md) に定義しています。Codexが変更を行う場合も、この運用と [AGENTS.md](AGENTS.md) を優先します。
+
+- `experiment/*`: 改善候補。提出しない
+- `main`: テスト済みコード。提出しない
+- `baseline/score-*`: 最高スコア版の凍結保存
+- `submission`: 意図的に選んだ候補。pushで提出処理を開始
+
 ## 構成
 
 - `src/kaggriculture_agent/`: エージェントと戦略
