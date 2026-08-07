@@ -1,4 +1,5 @@
 from kaggriculture_agent.adaptive_policy import ENDGAME_START_STEP, agent
+from kaggriculture_agent.pass_repair_policy import agent as pass_repair_agent
 from kaggriculture_agent.replay_policy import agent as replay_agent
 
 
@@ -33,3 +34,29 @@ def test_adaptive_policy_liquidates_remaining_sellable_inventory():
 
     assert sells["MELON"] == 3
     assert sells["WHEAT"] == 2
+
+
+def test_pass_repair_does_not_change_a_pass_on_an_empty_tile():
+    obs = _observation(100)
+    obs["day"] = 100
+    assert pass_repair_agent(obs) == replay_agent(obs)
+
+
+def test_pass_repair_harvests_a_ready_plant_under_a_pass(monkeypatch):
+    obs = _observation(100)
+    obs["day"] = 100
+    farm = obs["farms"][0]
+    farm["farmer"] = [4, 4]
+    farm["tiles"][4][4] = {
+        "kind": "PLANT",
+        "crop": "WHEAT",
+        "watered_today": True,
+        "yield_units": 2,
+        "planted_day": 90,
+    }
+    monkeypatch.setattr(
+        "kaggriculture_agent.pass_repair_policy.replay_with_endgame_agent",
+        lambda _obs: {"farmer": ["PASS"], "hands": [], "market": []},
+    )
+    repaired = pass_repair_agent(obs)
+    assert repaired["farmer"] == ["HARVEST"]
