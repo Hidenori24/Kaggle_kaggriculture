@@ -13,6 +13,7 @@
 ## Branches
 
 - `feature/*`: tests and development only.
+- `baseline/*`: immutable, known-good reference candidates; never submit directly.
+- `experiment/*`: branches created from a baseline or `submission`; CI and comparison only.
 - `main`: tested code and simulations only.
 - `submission`: an intentional, tested submission candidate. Pushing this branch may submit to Kaggle after the submission gate is enabled.
-
