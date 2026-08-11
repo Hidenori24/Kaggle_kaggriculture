@@ -145,3 +145,11 @@
 - 修正: `_preempt_shift`内の呼び出しを`_safe_market(obs, action, respect_price_floor=False)`に変更。`agent()`側の2回目の呼び出し（`_preempt_shift`後）は既存通り`respect_price_floor=False`のままなので、フロアは常にtapeの初回`_safe_market`呼び出し1回だけで適用される。
 - 検証: 実際のステップ167（WOOL出荷ハザードがstep168にスケジュールされている）を使い、修正前後の挙動を直接比較。修正前は数量1のSELL WOOL注文が`_preempt_shift`内の再クランプで完全に消えることを確認し、修正後は`_preempt_shift`本来のロジック（target算出）で数量10へ正しく調整されることを確認した。回帰テストとして`test_preempt_shift_does_not_re_floor_an_already_clamped_sell`を追加。`python -m pytest -q`は17件成功、`python scripts/simulate.py --episodes 3`はrandom相手に176,042 / 181,927 / 170,171点で既存挙動と同等。
 - この修正はKaggle提出前に`main`へ反映し、`submission`ブランチへも同一内容を合流させた。
+
+## 2026-08-11: shed-pressure-animal-starvation-regression
+
+- 経緯: 提出直後の2件のKaggleリプレイ（自分視点で敗北、報酬48,352 vs 49,501 と 42,255 vs 60,798）をユーザーが共有。序盤〜中盤は互角以上だったが、両試合とも22〜24日目付近で自分側の飼育動物数が急減（14→1、14→0）し、そこから相手との差が開いた。
+- 原因: 価格フロア機構が、価格が暴落した品目（WOOL・MELON・MILK・FERTILIZERなど）のSELLを保留してshed（総容量100）へ滞留させ続けた結果、shedが18日目以降ずっと満杯（100/100）に固定された。shedが満杯だと新規のWHEAT購入がshedへ入庫できず（`_projected_shed`の`room`が0になる）、飼料WHEATの補充が止まり、動物が給餌不能（`consecutive_unfed`上昇）となって餓死・消滅した。旧版（価格フロア導入前）の同時期のリプレイでは、shedは55〜90程度で推移しており満杯に固定されることはなかった。
+- 対策: `_safe_market`に「shed圧力弁」を追加。`_projected_shed`の合計占有量が`_SHED_PRESSURE_RELIEF`（80/100）以上になった時点で、その呼び出しに限り価格フロアを自動的に無効化し、保留していた低価格品目も通常通り売却してshedを空ける。これにより、価格暴落時でもshedが満杯に固定されず、WHEAT補充と動物の給餌ループが継続する。
+- 検証: 実際に満杯（shed合計100、WOOL19保有）だったリプレイの18日目の観測をそのままエージェントへ入力し、修正前は`FERTILIZER`（価格5、基準100の5%）が保留され0個になっていたのに対し、修正後はshed圧力弁が働きtape本来の数量（STRAWBERRY6・WOOL6・MILK9・FERTILIZER5等）が売却され、shedが空くことを確認した。回帰テスト`test_price_floor_stands_down_when_shed_is_under_pressure`を追加。`python -m pytest -q`は18件成功、`python scripts/simulate.py --episodes 5`はrandom相手に185,341〜197,896点で既存挙動と同等。
+- 教訓: 個別のSELL単位でのみ価格フロアを検証し、shedという共有リソースへの累積的な副作用を見落としていた。今後、`_safe_market`へ変更を加える際はshed占有率の時系列も必ず確認する。
