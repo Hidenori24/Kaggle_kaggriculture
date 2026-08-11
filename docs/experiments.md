@@ -166,3 +166,24 @@
 - 固定PASS相手3シード: ベース`207,164 / 181,047 / 188,857`（平均`192,356.0`）、反映版`206,655 / 181,235 / 188,367`（平均`192,085.7`）。平均は`270.3`点低下したが、最低値は`188`点改善した。
 - seeded random相手3シード: ベース`185,370 / 204,936 / 183,408`（平均`191,238.0`）、反映版`183,370 / 196,368 / 199,530`（平均`193,089.3`）。平均は`1,851.3`点改善したが、シードごとの変動が大きい。
 - 通常シミュレーションは`165,923 / 195,305 / 190,514`。判断: 効果は相手依存で、固定PASSに対する安定改善ではない。現在の`submission`へは反映せず、実験ブランチで保持する。
+
+## 2026-08-11: crowded-market-price-floor
+
+- 経緯: ユーザーからの報告で、安定版が最近の対戦で負け始め、改善版（`replay_policy`）の実スコアも最高2,500点前後から1,900点前後まで下落していた。ユーザーが共有した直近2件のKaggleリプレイ（自分視点で敗北、報酬97,862 vs 109,804 と 61,465 vs 87,144）を解析した。
+- 両リプレイとも共通パターン: 序盤〜18日目頃までは対戦相手と互角以上だが、18〜20日目を境に相手の資金成長が急加速し、以降差が開き続ける。同時に市場価格を見ると、`MELON`が250→4〜10、`FERTILIZER`が100→32〜34、`MILK`/`WOOL`が160/200→1〜30まで暴落していた。両ゲームとも初期価格は同一（`CARROT35, EGG50, FERTILIZER100, MELON250, MILK160, STRAWBERRY120, TOMATO60, WHEAT25, WOOL200`固定）であることを確認済み。
+- 原因分析: `replay_policy.py`は単一の公開リプレイから書き起こした固定行動列を再生するだけで、現在の市場価格を見ずにSELL数量をそのまま実行していた。似た戦略（本アルゴリズム自身の由来である公開ノートブックの模倣を含む）を採用する対戦相手が増えたことで、特定品目（動物性商品・投機的作物）の供給過多が発生し、価格が暴落したタイミングでも構わず投げ売りしてしまい、序盤の優位を終盤で失っていたと考えられる。
+- 対策: `_safe_market`に価格フロア機構を追加。各品目の初期基準価格（`_PRICE_REFERENCE`）に対する現在価格の比率に応じて、SELL予定数量を段階的に絞る（50%以上で全量、25〜50%で半量、10〜25%で2割、10%未満は保留）。保留分は最終日の`_terminal_market`で必ず清算されるよう、`_terminal_market`側もSELL予定数量控除後の残余在庫を正しく計算するよう修正した（従来は同一品目に部分SELLが既にあると残りを見送っていたバグを合わせて修正）。
+- 検証: `python -m pytest -q`は16件成功（価格フロアの分岐を検証する新規テスト3件を追加）。`python scripts/simulate.py --episodes 5`はrandom相手に平均約189,557点で、価格暴落が起きないrandom対戦では既存挙動とほぼ同等（想定通り、フロアはランダム相手では滅多に発動しない）。共有された2件の実リプレイの観測列に新方針を適用したところ、同一ステップ・同一価格条件でのSELL計画金額が旧方針比で+7.3%（144,384→154,943）、+8.6%（110,810→120,371）と増加し、暴落価格での投げ売り抑制効果を確認した（状態遷移の反実仮想までは再現していない概算値）。
+
+## 2026-08-11: preempt-shift-price-floor-double-clamp-fix
+
+- 上記の価格フロア導入直後にレビューした結果、`_preempt_shift`内部が独自に`_safe_market(obs, action)`（価格フロア有効）を呼び直しており、`agent()`側で既に一度フロア適用済みのSELL数量へ再度フロアをかけてしまうバグを発見した。例: 元の要求5個がフロアで1個へ縮小された後、`_preempt_shift`内の再クランプで`1 * 0.2`が切り捨てられ0個になり、注文自体が消える。
+- 修正: `_preempt_shift`内の呼び出しを`_safe_market(obs, action, respect_price_floor=False)`に変更。`agent()`側の2回目の呼び出し（`_preempt_shift`後）は既存通り`respect_price_floor=False`のままなので、フロアは常にtapeの初回`_safe_market`呼び出し1回だけで適用される。
+- 検証: 実際のステップ167（WOOL出荷ハザードがstep168にスケジュールされている）を使い、修正前後の挙動を直接比較。修正前は数量1のSELL WOOL注文が`_preempt_shift`内の再クランプで完全に消えることを確認し、修正後は`_preempt_shift`本来のロジック（target算出）で数量10へ正しく調整されることを確認した。回帰テストとして`test_preempt_shift_does_not_re_floor_an_already_clamped_sell`を追加。`python -m pytest -q`は17件成功、`python scripts/simulate.py --episodes 3`はrandom相手に176,042 / 181,927 / 170,171点で既存挙動と同等。
+- この修正はKaggle提出前に`main`へ反映し、`submission`ブランチへも同一内容を合流させた。
+
+## 2026-08-11: submission-merge-shadow-market-double-clamp-fix
+
+- `main`のPR #10・#11を`submission`ブランチへ合流させる際、`submission`にのみ存在する`economic_shadow.py`由来の`_shadow_market_overlay`ラッパー（`agent()`が`_base_agent()`の後に呼ぶ late-game SELL 追加ロジック）でも同種の二重クランプが見つかった。`agent()`最終行の`_safe_market(obs, action)`が価格フロア既定（`respect_price_floor=True`）のまま、`_base_agent()`が既に確定させた最終日清算（`_terminal_market`）の数量まで再度フロア圧縮してしまう経路だった。`respect_price_floor=False`に変更し、shadow overlay追加分をshed容量・10件枠にだけ再クランプするよう修正した。`main`にはこのラッパー自体が存在しないため、この修正は`submission`ブランチのマージコミットでのみ適用する。
+- 検証: マージ後の`python -m pytest -q`は21件成功（`main`側17件 + `submission`固有のshadow系テスト4件）。`python scripts/simulate.py --episodes 5`はrandom相手に`178,646 / 197,423 / 185,082 / 194,644 / 198,214`（平均約190,802）で既存の`submission`挙動と同等。
+- この状態を`submission`ブランチへpushし、`submit.yml`経由でKaggleへ提出した。
