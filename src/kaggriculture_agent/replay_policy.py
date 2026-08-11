@@ -471,7 +471,11 @@ def _preempt_shift(obs, action, step):
     if not hazards:
         return action
 
-    action = _safe_market(obs, action)
+    # respect_price_floor=False: the caller already applied the price floor to
+    # this tape's SELL orders once; re-applying it here would shrink an
+    # already-floor-clamped quantity a second time (e.g. a quantity cut to 1
+    # unit gets floored to 0 on the second pass instead of staying at 1).
+    action = _safe_market(obs, action, respect_price_floor=False)
     market = list(action.get("market") or [])
     remaining = _remaining_shed(obs, action)
     shifted = {}
