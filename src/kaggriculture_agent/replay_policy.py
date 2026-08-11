@@ -167,6 +167,29 @@ _SELLABLE = (
     "STRAWBERRY", "MELON", "MILK", "WOOL", "WHEAT",
     "FERTILIZER", "EGG", "TOMATO", "CARROT",
 )
+# Kaggriculture starts every match at these fixed opening prices. Crowded
+# copies of similar strategies (ours included) tend to crash a commodity's
+# price to a small fraction of its opener by mid-game; dumping the scheduled
+# tape's full SELL batch into that crash gives away most of the item's value.
+_PRICE_REFERENCE = {
+    "CARROT": 35, "EGG": 50, "FERTILIZER": 100, "MELON": 250,
+    "MILK": 160, "STRAWBERRY": 120, "TOMATO": 60, "WHEAT": 25, "WOOL": 200,
+}
+# (price / reference threshold, fraction of the requested quantity to sell).
+# Below the lowest threshold, hold the batch and let a later scheduled SELL
+# (or the final terminal liquidation) clear it instead of fire-selling now.
+_PRICE_FLOOR_TIERS = ((0.5, 1.0), (0.25, 0.5), (0.1, 0.2))
+
+
+def _price_floor_fraction(item, price):
+    reference = _PRICE_REFERENCE.get(item)
+    if not reference or price is None:
+        return 1.0
+    ratio = float(price) / float(reference)
+    for threshold, fraction in _PRICE_FLOOR_TIERS:
+        if ratio >= threshold:
+            return fraction
+    return 0.0
 
 
 def _get(obj, key, default=None):
@@ -485,9 +508,10 @@ def _preempt_shift(obs, action, step):
     return action
 
 
-def _safe_market(obs, action):
+def _safe_market(obs, action, respect_price_floor=True):
     action = _align_hands(action, obs)
     remaining = _projected_shed(obs, action)
+    prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
     market = []
     for raw in action.get("market", []) or []:
         order = list(raw)
@@ -497,6 +521,9 @@ def _safe_market(obs, action):
                 requested = max(0, int(order[2]))
             except (TypeError, ValueError):
                 requested = 0
+            if respect_price_floor:
+                fraction = _price_floor_fraction(item, prices.get(item))
+                requested = int(requested * fraction)
             quantity = min(requested, max(0, int(remaining.get(item, 0) or 0)))
             if quantity <= 0:
                 continue
@@ -511,12 +538,15 @@ def _terminal_market(obs, action):
     action = _align_hands(action, obs)
     shed = _projected_shed(obs, action)
     existing = [list(order) for order in (action.get("market") or []) if order]
-    existing_sell = {order[1] for order in existing if len(order) >= 3 and order[0] == "SELL"}
+    already_sold = {}
+    for order in existing:
+        if len(order) >= 3 and order[0] == "SELL":
+            already_sold[order[1]] = already_sold.get(order[1], 0) + max(0, int(order[2] or 0))
     rows = []
     prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
     for index, item in enumerate(_SELLABLE):
-        quantity = max(0, int(shed.get(item, 0) or 0))
-        if quantity > 0 and item not in existing_sell:
+        quantity = max(0, int(shed.get(item, 0) or 0)) - already_sold.get(item, 0)
+        if quantity > 0:
             rows.append((float(prices.get(item, 1) or 1), -index, item, quantity))
     rows.sort(reverse=True)
     action["market"] = existing + [["SELL", item, quantity] for _, _, item, quantity in rows]
@@ -531,7 +561,7 @@ def agent(obs):
         action = _repay_shift(obs, action, step)
         action = _safe_market(obs, action)
         action = _preempt_shift(obs, action, step)
-        action = _safe_market(obs, action)
+        action = _safe_market(obs, action, respect_price_floor=False)
         if step == len(_ACTIONS) - 1:
             action = _terminal_market(obs, action)
         return _align_hands(action, obs)
