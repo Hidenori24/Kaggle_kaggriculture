@@ -187,3 +187,11 @@
 - `main`のPR #10・#11を`submission`ブランチへ合流させる際、`submission`にのみ存在する`economic_shadow.py`由来の`_shadow_market_overlay`ラッパー（`agent()`が`_base_agent()`の後に呼ぶ late-game SELL 追加ロジック）でも同種の二重クランプが見つかった。`agent()`最終行の`_safe_market(obs, action)`が価格フロア既定（`respect_price_floor=True`）のまま、`_base_agent()`が既に確定させた最終日清算（`_terminal_market`）の数量まで再度フロア圧縮してしまう経路だった。`respect_price_floor=False`に変更し、shadow overlay追加分をshed容量・10件枠にだけ再クランプするよう修正した。`main`にはこのラッパー自体が存在しないため、この修正は`submission`ブランチのマージコミットでのみ適用する。
 - 検証: マージ後の`python -m pytest -q`は21件成功（`main`側17件 + `submission`固有のshadow系テスト4件）。`python scripts/simulate.py --episodes 5`はrandom相手に`178,646 / 197,423 / 185,082 / 194,644 / 198,214`（平均約190,802）で既存の`submission`挙動と同等。
 - この状態を`submission`ブランチへpushし、`submit.yml`経由でKaggleへ提出した。
+
+## 2026-08-11: shed-pressure-animal-starvation-regression
+
+- 経緯: 提出直後の2件のKaggleリプレイ（自分視点で敗北、報酬48,352 vs 49,501 と 42,255 vs 60,798）をユーザーが共有。序盤〜中盤は互角以上だったが、両試合とも22〜24日目付近で自分側の飼育動物数が急減（14→1、14→0）し、そこから相手との差が開いた。
+- 原因: 価格フロア機構が、価格が暴落した品目（WOOL・MELON・MILK・FERTILIZERなど）のSELLを保留してshed（総容量100）へ滞留させ続けた結果、shedが18日目以降ずっと満杯（100/100）に固定された。shedが満杯だと新規のWHEAT購入がshedへ入庫できず（`_projected_shed`の`room`が0になる）、飼料WHEATの補充が止まり、動物が給餌不能（`consecutive_unfed`上昇）となって餓死・消滅した。旧版（価格フロア導入前）の同時期のリプレイでは、shedは55〜90程度で推移しており満杯に固定されることはなかった。
+- 対策: `_safe_market`に「shed圧力弁」を追加。`_projected_shed`の合計占有量が`_SHED_PRESSURE_RELIEF`（80/100）以上になった時点で、その呼び出しに限り価格フロアを自動的に無効化し、保留していた低価格品目も通常通り売却してshedを空ける。これにより、価格暴落時でもshedが満杯に固定されず、WHEAT補充と動物の給餌ループが継続する。
+- 検証: 実際に満杯（shed合計100、WOOL19保有）だったリプレイの18日目の観測をそのままエージェントへ入力し、修正前は`FERTILIZER`（価格5、基準100の5%）が保留され0個になっていたのに対し、修正後はshed圧力弁が働きtape本来の数量（STRAWBERRY6・WOOL6・MILK9・FERTILIZER5等）が売却され、shedが空くことを確認した。回帰テスト`test_price_floor_stands_down_when_shed_is_under_pressure`を追加。`python -m pytest -q`は18件成功、`python scripts/simulate.py --episodes 5`はrandom相手に185,341〜197,896点で既存挙動と同等。
+- 教訓: 個別のSELL単位でのみ価格フロアを検証し、shedという共有リソースへの累積的な副作用を見落としていた。今後、`_safe_market`へ変更を加える際はshed占有率の時系列も必ず確認する。

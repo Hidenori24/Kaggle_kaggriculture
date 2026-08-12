@@ -185,6 +185,10 @@ _PRICE_REFERENCE = {
 # Below the lowest threshold, hold the batch and let a later scheduled SELL
 # (or the final terminal liquidation) clear it instead of fire-selling now.
 _PRICE_FLOOR_TIERS = ((0.5, 1.0), (0.25, 0.5), (0.1, 0.2))
+# Shed capacity is 100 units total across every item. Above this occupancy the
+# price floor stands down so held-back inventory keeps draining instead of
+# crowding out room for feed WHEAT deposits.
+_SHED_PRESSURE_RELIEF = 80
 
 
 def _price_floor_fraction(item, price):
@@ -521,6 +525,14 @@ def _preempt_shift(obs, action, step):
 def _safe_market(obs, action, respect_price_floor=True):
     action = _align_hands(action, obs)
     remaining = _projected_shed(obs, action)
+    # The shed caps out at 100 units total across every item. Holding back
+    # low-value SELLs for the price floor lets crashed-price items (e.g. WOOL,
+    # MELON) pile up there; once the shed is full, fresh WHEAT purchases can't
+    # be deposited, feed stock stops being replenished, and animals starve.
+    # Relieve the floor once occupancy gets close to the cap so the shed keeps
+    # draining and feed logistics never gets crowded out.
+    if respect_price_floor and sum(remaining.values()) >= _SHED_PRESSURE_RELIEF:
+        respect_price_floor = False
     prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
     market = []
     for raw in action.get("market", []) or []:
