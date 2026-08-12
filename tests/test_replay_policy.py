@@ -34,6 +34,25 @@ def test_replay_policy_partially_sells_into_a_depressed_price():
     assert _sell_quantity(action, "FERTILIZER") == 1
 
 
+def test_price_floor_stands_down_when_shed_is_under_pressure():
+    # A near-full shed (90/100) holding a crashed-price FERTILIZER order would
+    # otherwise get held back, keeping the shed pinned full and starving out
+    # room for fresh WHEAT feed deposits. Above the pressure threshold the
+    # floor should stand down and let the tape's full requested quantity sell.
+    observation = {
+        "step": 39,
+        "farms": [{"farmer": [4, 4], "hands": []}],
+        "private": {
+            "shed": {"FERTILIZER": 10, "WOOL": 80},
+            "inventories": [{}],
+        },
+        "market": {"prices": {"FERTILIZER": 5}},  # crashed: would floor to 0
+        "player": 0,
+    }
+    action = agent(observation)
+    assert _sell_quantity(action, "FERTILIZER") == 2
+
+
 def test_preempt_shift_does_not_re_floor_an_already_clamped_sell():
     # Step 167 has a WOOL hazard scheduled for step 168, so _preempt_shift's
     # gating conditions are satisfied once clone_distance is 0 (identical farms).
