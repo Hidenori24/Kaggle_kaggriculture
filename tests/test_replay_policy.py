@@ -1,86 +1,4 @@
-from kaggriculture_agent.replay_policy import _ACTIONS, _SHIFT_STATE, _preempt_shift, _safe_market, agent
-
-
-def _sell_quantity(action, item):
-    for order in action["market"]:
-        if len(order) >= 3 and order[0] == "SELL" and order[1] == item:
-            return order[2]
-    return None
-
-
-def _fertilizer_sale_observation(price):
-    # Step 39's scheduled tape sells 2 FERTILIZER; FERTILIZER opens at 100.
-    return {
-        "step": 39,
-        "farms": [{"farmer": [4, 4], "hands": []}],
-        "private": {"shed": {"FERTILIZER": 10}, "inventories": [{}]},
-        "market": {"prices": {"FERTILIZER": price}},
-        "player": 0,
-    }
-
-
-def test_replay_policy_sells_full_tape_quantity_at_healthy_prices():
-    action = agent(_fertilizer_sale_observation(100))
-    assert _sell_quantity(action, "FERTILIZER") == 2
-
-
-def test_replay_policy_holds_back_sales_into_a_crashed_price():
-    action = agent(_fertilizer_sale_observation(5))
-    assert _sell_quantity(action, "FERTILIZER") is None
-
-
-def test_replay_policy_partially_sells_into_a_depressed_price():
-    action = agent(_fertilizer_sale_observation(30))
-    assert _sell_quantity(action, "FERTILIZER") == 1
-
-
-def test_price_floor_stands_down_when_shed_is_under_pressure():
-    # A near-full shed (90/100) holding a crashed-price FERTILIZER order would
-    # otherwise get held back, keeping the shed pinned full and starving out
-    # room for fresh WHEAT feed deposits. Above the pressure threshold the
-    # floor should stand down and let the tape's full requested quantity sell.
-    observation = {
-        "step": 39,
-        "farms": [{"farmer": [4, 4], "hands": []}],
-        "private": {
-            "shed": {"FERTILIZER": 10, "WOOL": 80},
-            "inventories": [{}],
-        },
-        "market": {"prices": {"FERTILIZER": 5}},  # crashed: would floor to 0
-        "player": 0,
-    }
-    action = agent(observation)
-    assert _sell_quantity(action, "FERTILIZER") == 2
-
-
-def test_preempt_shift_does_not_re_floor_an_already_clamped_sell():
-    # Step 167 has a WOOL hazard scheduled for step 168, so _preempt_shift's
-    # gating conditions are satisfied once clone_distance is 0 (identical farms).
-    _SHIFT_STATE[0] = {"last_step": -1, "due_step": -1, "due": {}, "last_preempt": -(10**9)}
-    farm = {
-        "farmer": [4, 4],
-        "hands": [],
-        "tiles": [[None] * 10 for _ in range(10)],
-        "unlocked_quadrants": ["NW"],
-    }
-    observation = {
-        "step": 167,
-        "farms": [farm, farm],
-        "private": {"shed": {"WOOL": 20}, "inventories": [{}]},
-        "market": {"prices": {"WOOL": 30}},  # 30 / 200 reference = depressed tier
-        "player": 0,
-    }
-    action = {"farmer": ["PASS"], "hands": [], "market": [["SELL", "WOOL", 5]]}
-
-    clamped = _safe_market(observation, action)
-    assert _sell_quantity(clamped, "WOOL") == 1  # floor tier reduces 5 -> 1
-
-    shifted = _preempt_shift(observation, clamped, 167)
-    # A regression here would re-apply the price floor to the already-clamped
-    # quantity of 1 (0.2 fraction of 1 rounds down to 0) and drop the order
-    # entirely instead of letting the preempt logic size it.
-    assert _sell_quantity(shifted, "WOOL") is not None
-    assert _sell_quantity(shifted, "WOOL") >= 1
+from kaggriculture_agent.replay_policy import _ACTIONS, _TROUGH_STATE, agent
 
 
 def test_replay_policy_is_deterministic_and_bounded():
@@ -102,3 +20,62 @@ def test_replay_policy_is_deterministic_and_bounded():
 def test_replay_policy_has_a_complete_episode_tape():
     assert len(_ACTIONS) >= 700
     assert all(isinstance(action, dict) for action in _ACTIONS)
+
+
+def _sell_quantity(action, item):
+    for order in action["market"]:
+        if len(order) >= 3 and order[0] == "SELL" and order[1] == item:
+            return order[2]
+    return None
+
+
+def _trough_observation(step, shed):
+    return {
+        "step": step,
+        "player": 0,
+        "farms": [{"farmer": [4, 4], "hands": []}],
+        "private": {"shed": dict(shed), "inventories": [{}]},
+        "market": {"prices": {}},
+    }
+
+
+def _reset_trough_state():
+    for seat in (0, 1):
+        _TROUGH_STATE[seat] = {"last_step": -1, "pending": []}
+
+
+def test_trough_sell_is_deferred_to_the_restocked_step():
+    # Step 68 is a trough step (68 % 4 == 0) whose tape market is a lone
+    # SELL WHEAT 2 with nothing to pay for, so deferring it is safe.
+    _reset_trough_state()
+    held = agent(_trough_observation(68, {"WHEAT": 20}))
+    assert _sell_quantity(held, "WHEAT") is None
+
+    released = agent(_trough_observation(69, {"WHEAT": 20}))
+    assert _sell_quantity(released, "WHEAT") == 2
+
+
+def test_trough_sell_is_kept_when_the_step_has_something_to_pay_for():
+    # Step 48 pairs SELL FERTILIZER with HIRE and BUY_PRODUCT WHEAT. Deferring
+    # the proceeds there starves the tape's own purchases.
+    _reset_trough_state()
+    action = agent(_trough_observation(48, {"FERTILIZER": 20}))
+    assert _sell_quantity(action, "FERTILIZER") == 2
+
+
+def test_trough_sell_is_kept_when_the_shed_is_nearly_full():
+    # A near-full shed must keep draining; holding stock there is how the
+    # withdrawn price floor pinned the shed and starved the animals.
+    _reset_trough_state()
+    action = agent(_trough_observation(68, {"WHEAT": 20, "WOOL": 75}))
+    assert _sell_quantity(action, "WHEAT") == 2
+
+
+def test_trough_deferral_never_holds_stock_past_the_final_step():
+    _reset_trough_state()
+    last = len(_ACTIONS) - 1
+    action = agent(_trough_observation(last - (last % 4), {"WHEAT": 5}))
+    assert isinstance(action["market"], list)
+    final = agent(_trough_observation(last, {"WHEAT": 5}))
+    assert _sell_quantity(final, "WHEAT") == 5
+    assert _TROUGH_STATE[0]["pending"] == []
