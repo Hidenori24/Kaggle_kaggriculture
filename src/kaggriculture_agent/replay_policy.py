@@ -598,6 +598,41 @@ def _shift_sells_off_trough(obs, action, step):
     return action
 
 
+def _work_idle_hands(obs, action):
+    """Fill PASS hand slots with free work on the tile the unit already stands on.
+
+    Additive only: it never displaces an action the tape asked for, and it
+    never moves a unit, so the tape's routing stays aligned.  The tape leaves
+    1011 of its 6181 hand slots on PASS.
+
+    Measured on the recorded-opponent benchmark: mean +0.21%, and the worst
+    match improves 8.7% (106,898 -> 116,208).  It also drops the day-10+
+    animal minimum from 12 to 9 for reasons that are not understood -- a shed
+    occupancy guard does not recover it, so shed contention is not the cause.
+    That unexplained cost is exactly what this challenger submission exists to
+    settle on the ladder, against a baseline that differs in nothing else.
+    """
+    _seat, farm = _farm(obs)
+    positions = list(_get(farm, "hands", []) or [])
+    hands = list(action.get("hands") or [])
+    for index, unit_action in enumerate(hands):
+        if not unit_action or unit_action[0] != "PASS" or index >= len(positions):
+            continue
+        tile = _tile_at(farm, positions[index])
+        if not isinstance(tile, dict):
+            continue
+        if int(tile.get("yield_units", 0) or 0) > 0:
+            hands[index] = ["HARVEST"]
+        elif tile.get("kind") == "PLANT" and not tile.get("watered_today"):
+            hands[index] = ["WATER"]
+        elif tile.get("fertilizer_available"):
+            hands[index] = ["COLLECT_FERTILIZER"]
+        elif tile.get("animal") and not tile.get("cared_today"):
+            hands[index] = ["CARE"]
+    action["hands"] = hands
+    return action
+
+
 def agent(obs):
     try:
         step = _step(obs)
@@ -612,7 +647,8 @@ def agent(obs):
         action = _safe_market(obs, action)
         if step == len(_ACTIONS) - 1:
             action = _terminal_market(obs, action)
-        return _align_hands(action, obs)
+        action = _align_hands(action, obs)
+        return _work_idle_hands(obs, action)
     except Exception:
         _seat, farm = _farm(obs)
         return {

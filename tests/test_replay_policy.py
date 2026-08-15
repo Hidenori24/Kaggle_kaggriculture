@@ -79,3 +79,61 @@ def test_trough_deferral_never_holds_stock_past_the_final_step():
     final = agent(_trough_observation(last, {"WHEAT": 5}))
     assert _sell_quantity(final, "WHEAT") == 5
     assert _TROUGH_STATE[0]["pending"] == []
+
+
+def _idle_observation(tile):
+    # Step 0's tape leaves hand slots on PASS, so the idle filler is what
+    # decides this hand's action.
+    return {
+        "step": 0,
+        "player": 0,
+        "farms": [{
+            "farmer": [0, 0],
+            "hands": [[1, 1]],
+            "tiles": [[None, None], [None, tile]],
+        }],
+        "private": {"shed": {}, "inventories": [{}, {}]},
+        "market": {"prices": {}},
+    }
+
+
+def test_idle_hand_harvests_a_ready_tile():
+    action = agent(_idle_observation({"kind": "PLANT", "crop": "WHEAT", "yield_units": 2}))
+    assert action["hands"][0] == ["HARVEST"]
+
+
+def test_idle_hand_waters_a_dry_plant():
+    action = agent(_idle_observation({
+        "kind": "PLANT", "crop": "WHEAT", "yield_units": 0, "watered_today": False,
+    }))
+    assert action["hands"][0] == ["WATER"]
+
+
+def test_idle_hand_leaves_a_serviced_plant_alone():
+    action = agent(_idle_observation({
+        "kind": "PLANT", "crop": "WHEAT", "yield_units": 0, "watered_today": True,
+    }))
+    assert action["hands"][0] == ["PASS"]
+
+
+def test_idle_hand_collects_fertilizer_then_cares():
+    ready = agent(_idle_observation({
+        "kind": "PASTURE", "animal": "COW", "fertilizer_available": True, "cared_today": False,
+    }))
+    assert ready["hands"][0] == ["COLLECT_FERTILIZER"]
+    cared = agent(_idle_observation({
+        "kind": "PASTURE", "animal": "COW", "fertilizer_available": False, "cared_today": False,
+    }))
+    assert cared["hands"][0] == ["CARE"]
+
+
+def test_idle_filler_never_displaces_a_tape_action():
+    # Whatever the tape asks a unit to do, the filler must leave it intact.
+    observation = _idle_observation({"kind": "PLANT", "crop": "WHEAT", "yield_units": 9})
+    for step in range(0, 400):
+        observation["step"] = step
+        tape_hands = _ACTIONS[step].get("hands") or []
+        if tape_hands and tape_hands[0] and tape_hands[0][0] != "PASS":
+            assert agent(observation)["hands"][0] == list(tape_hands[0])
+            return
+    raise AssertionError("no non-PASS tape hand action found to check")
