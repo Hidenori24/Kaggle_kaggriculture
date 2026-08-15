@@ -13,8 +13,6 @@ import copy
 import json
 import zlib
 
-from .economic_shadow import forecast_economy
-
 
 _ACTIONS = json.loads(zlib.decompress(base64.b85decode((
     'c-rk<O>Z2@k^L_`^Pv79Mft{&+LmCBC{WZkyo1JI0NXII@E&IOw%Gq}jYw8iSG;)fA~LH*jeKj6-Bpp1QCacv;>Az@clP&Re*Nd)'
@@ -169,37 +167,28 @@ _SELLABLE = (
     "STRAWBERRY", "MELON", "MILK", "WOOL", "WHEAT",
     "FERTILIZER", "EGG", "TOMATO", "CARROT",
 )
-_SHADOW_MARKET_START = len(_ACTIONS) - 48
-_SHADOW_MARKET_MIN_ADVANTAGE = 200.0
-_SHADOW_MARKET_MAX_ITEMS = 2
-_SHADOW_MARKET_MAX_BATCH = 8
-# Kaggriculture starts every match at these fixed opening prices. Crowded
-# copies of similar strategies (ours included) tend to crash a commodity's
-# price to a small fraction of its opener by mid-game; dumping the scheduled
-# tape's full SELL batch into that crash gives away most of the item's value.
-_PRICE_REFERENCE = {
-    "CARROT": 35, "EGG": 50, "FERTILIZER": 100, "MELON": 250,
-    "MILK": 160, "STRAWBERRY": 120, "TOMATO": 60, "WHEAT": 25, "WOOL": 200,
+
+# Prices are a function of market inventory, and the town eats inventory (so
+# prices recover) every `townShopSellInterval` steps -- but the interpreter
+# runs _process_market *before* _town_consume.  A step where step % 4 == 0
+# therefore trades against the most depleted market of the cycle, and the very
+# next step trades against the freshly restocked one.  The tape puts 957 of
+# its 1774 scheduled SELL units on exactly that trough step, because it
+# harvests at the end of a day and sells at the top of the next.
+_TOWN_SELL_INTERVAL = 4
+# Deferring is only safe where it cannot starve the tape of something it is
+# about to spend.  Two guards, both learned the hard way:
+#   * A step carrying any BUY_* order keeps its sales.  The tape's purchases
+#     assume the proceeds of that same step; deferring them unconditionally
+#     measured -49.8% and left animals dead (2 of 14 alive).
+#   * The shed is a shared 100-unit store.  Deferring while it is nearly full
+#     is how the price-floor experiment pinned it and starved out room for
+#     feed WHEAT.  Stay well clear of the cap.
+_TROUGH_SHED_LIMIT = 80
+_TROUGH_STATE = {
+    0: {"last_step": -1, "pending": []},
+    1: {"last_step": -1, "pending": []},
 }
-# (price / reference threshold, fraction of the requested quantity to sell).
-# Below the lowest threshold, hold the batch and let a later scheduled SELL
-# (or the final terminal liquidation) clear it instead of fire-selling now.
-_PRICE_FLOOR_TIERS = ((0.5, 1.0), (0.25, 0.5), (0.1, 0.2))
-# Shed capacity is 100 units total across every item. Above this occupancy the
-# price floor stands down so held-back inventory keeps draining instead of
-# crowding out room for feed WHEAT deposits.
-_SHED_PRESSURE_RELIEF = 80
-
-
-def _price_floor_fraction(item, price):
-    reference = _PRICE_REFERENCE.get(item)
-    if not reference or price is None:
-        return 1.0
-    ratio = float(price) / float(reference)
-    for threshold, fraction in _PRICE_FLOOR_TIERS:
-        if ratio >= threshold:
-            return fraction
-    return 0.0
 
 
 def _get(obj, key, default=None):
@@ -481,11 +470,7 @@ def _preempt_shift(obs, action, step):
     if not hazards:
         return action
 
-    # respect_price_floor=False: the caller already applied the price floor to
-    # this tape's SELL orders once; re-applying it here would shrink an
-    # already-floor-clamped quantity a second time (e.g. a quantity cut to 1
-    # unit gets floored to 0 on the second pass instead of staying at 1).
-    action = _safe_market(obs, action, respect_price_floor=False)
+    action = _safe_market(obs, action)
     market = list(action.get("market") or [])
     remaining = _remaining_shed(obs, action)
     shifted = {}
@@ -522,18 +507,9 @@ def _preempt_shift(obs, action, step):
     return action
 
 
-def _safe_market(obs, action, respect_price_floor=True):
+def _safe_market(obs, action):
     action = _align_hands(action, obs)
     remaining = _projected_shed(obs, action)
-    # The shed caps out at 100 units total across every item. Holding back
-    # low-value SELLs for the price floor lets crashed-price items (e.g. WOOL,
-    # MELON) pile up there; once the shed is full, fresh WHEAT purchases can't
-    # be deposited, feed stock stops being replenished, and animals starve.
-    # Relieve the floor once occupancy gets close to the cap so the shed keeps
-    # draining and feed logistics never gets crowded out.
-    if respect_price_floor and sum(remaining.values()) >= _SHED_PRESSURE_RELIEF:
-        respect_price_floor = False
-    prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
     market = []
     for raw in action.get("market", []) or []:
         order = list(raw)
@@ -543,9 +519,6 @@ def _safe_market(obs, action, respect_price_floor=True):
                 requested = max(0, int(order[2]))
             except (TypeError, ValueError):
                 requested = 0
-            if respect_price_floor:
-                fraction = _price_floor_fraction(item, prices.get(item))
-                requested = int(requested * fraction)
             quantity = min(requested, max(0, int(remaining.get(item, 0) or 0)))
             if quantity <= 0:
                 continue
@@ -560,15 +533,12 @@ def _terminal_market(obs, action):
     action = _align_hands(action, obs)
     shed = _projected_shed(obs, action)
     existing = [list(order) for order in (action.get("market") or []) if order]
-    already_sold = {}
-    for order in existing:
-        if len(order) >= 3 and order[0] == "SELL":
-            already_sold[order[1]] = already_sold.get(order[1], 0) + max(0, int(order[2] or 0))
+    existing_sell = {order[1] for order in existing if len(order) >= 3 and order[0] == "SELL"}
     rows = []
     prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
     for index, item in enumerate(_SELLABLE):
-        quantity = max(0, int(shed.get(item, 0) or 0)) - already_sold.get(item, 0)
-        if quantity > 0:
+        quantity = max(0, int(shed.get(item, 0) or 0))
+        if quantity > 0 and item not in existing_sell:
             rows.append((float(prices.get(item, 1) or 1), -index, item, quantity))
     rows.sort(reverse=True)
     action["market"] = existing + [["SELL", item, quantity] for _, _, item, quantity in rows]
@@ -576,61 +546,70 @@ def _terminal_market(obs, action):
     return action
 
 
-def _shadow_market_overlay(obs, action):
-    """Add a tiny late-game SELL overlay when waiting is clearly costly."""
-    step = _step(obs)
-    if step < _SHADOW_MARKET_START:
-        return action
-    try:
-        report = forecast_economy(obs, horizons=(48, 72))
-        short = report["horizons"][48]
-        long = report["horizons"][72]
-        advantage = float(short["cash_plus_visible_value"]) - float(long["conservative_wait_value"])
-    except Exception:
-        return action
-    if advantage < _SHADOW_MARKET_MIN_ADVANTAGE:
-        return action
+def _trough_state(obs, step):
+    seat = 1 if int(_get(obs, "player", 0) or 0) == 1 else 0
+    state = _TROUGH_STATE[seat]
+    if step == 0 or step < int(state.get("last_step", -1)):
+        state = {"last_step": step, "pending": []}
+        _TROUGH_STATE[seat] = state
+    state["last_step"] = step
+    return state
 
+
+def _shift_sells_off_trough(obs, action, step):
+    """Move a trough-step SELL to the next step, where the town has restocked.
+
+    Re-emitted units are only ever held for one step, and only when the step
+    spends nothing and the shed has room, so neither cash timing nor shed
+    capacity drifts the way the withdrawn price-floor experiment made them.
+    """
+    state = _trough_state(obs, step)
     market = [list(order) for order in (action.get("market") or []) if order]
-    if any(order and str(order[0]).startswith("BUY_") for order in market):
-        return action
-    existing_sell = {
-        order[1] for order in market
-        if len(order) >= 3 and order[0] == "SELL"
-    }
-    remaining = _remaining_shed(obs, action)
-    prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
-    candidates = []
-    for item in _SELLABLE:
-        if item in existing_sell:
-            continue
-        quantity = max(0, int(remaining.get(item, 0) or 0))
-        try:
-            price = max(0.0, float(prices.get(item, 0) or 0))
-        except (TypeError, ValueError):
-            price = 0.0
-        if quantity and price:
-            candidates.append((price * quantity, price, item, quantity))
-    candidates.sort(reverse=True)
-    additions = 0
-    for _value, _price, item, quantity in candidates:
-        if additions >= _SHADOW_MARKET_MAX_ITEMS or len(market) >= 10:
-            break
-        market.append(["SELL", item, min(quantity, _SHADOW_MARKET_MAX_BATCH)])
-        additions += 1
-    if additions:
-        action["market"] = market[:10]
+
+    pending, state["pending"] = state["pending"], []
+    if pending:
+        extra = []
+        for order in pending:
+            existing = next(
+                (row for row in market
+                 if len(row) >= 3 and row[0] == "SELL" and row[1] == order[1]),
+                None,
+            )
+            if existing is None:
+                extra.append(list(order))
+            else:
+                existing[2] += order[2]
+        market = extra + market
+
+    last_step = len(_ACTIONS) - 1
+    if step % _TOWN_SELL_INTERVAL == 0 and step != last_step:
+        shed = _get(_get(obs, "private", {}) or {}, "shed", {}) or {}
+        occupancy = sum(max(0, int(value or 0)) for value in shed.values())
+        spends = any(row and str(row[0]).startswith("BUY_") for row in market)
+        if not spends and occupancy < _TROUGH_SHED_LIMIT:
+            keep, defer = [], []
+            for row in market:
+                (defer if (len(row) >= 3 and row[0] == "SELL") else keep).append(row)
+            if defer:
+                state["pending"] = defer
+                market = keep
+
+    action["market"] = market[:10]
     return action
 
 
-def _base_agent(obs):
+def agent(obs):
     try:
         step = _step(obs)
         action = _weed_repair_action(obs, _copy_action(_ACTIONS[step]), step)
         action = _repay_shift(obs, action, step)
         action = _safe_market(obs, action)
         action = _preempt_shift(obs, action, step)
-        action = _safe_market(obs, action, respect_price_floor=False)
+        action = _safe_market(obs, action)
+        action = _shift_sells_off_trough(obs, action, step)
+        # Re-clamp: units carried over from the previous step still have to fit
+        # what the shed actually holds now.
+        action = _safe_market(obs, action)
         if step == len(_ACTIONS) - 1:
             action = _terminal_market(obs, action)
         return _align_hands(action, obs)
@@ -643,25 +622,8 @@ def _base_agent(obs):
         }
 
 
-def agent(obs):
-    action = _base_agent(obs)
-    try:
-        action = _shadow_market_overlay(obs, action)
-        # respect_price_floor=False: _base_agent already applied the price
-        # floor once to the tape's own SELL orders (and, on the final step,
-        # _terminal_market already computed the full liquidation quantities).
-        # This pass only needs to re-bound the shadow overlay's additions to
-        # shed capacity and the 10-order cap, not re-floor everything.
-        action = _safe_market(obs, action, respect_price_floor=False)
-    except Exception:
-        pass
-    # Forecast diagnostics remain shadow-only; only the bounded market overlay above can alter SELL.
-    try:
-        forecast_economy(obs)
-    except Exception:
-        pass
-    return action
-
-
 def _kaggle_submission_entrypoint(obs):
     return agent(obs)
+
+
+
