@@ -185,6 +185,14 @@ _TOWN_SELL_INTERVAL = 4
 #     is how the price-floor experiment pinned it and starved out room for
 #     feed WHEAT.  Stay well clear of the cap.
 _TROUGH_SHED_LIMIT = 80
+# FEED takes one WHEAT per animal per day.  The tape sizes its SELL WHEAT
+# orders against its own production and reserves nothing, so any extra WHEAT
+# in the shed simply gets sold: with idle harvesting adding WHEAT, day 6 shed
+# WHEAT fell 6 -> 1 and a cow starved on day 7.  Holding back a couple of days
+# of feed is what makes the extra production worth having.  Measured alone the
+# two pieces do nothing -- reserve without idle work is -3.0%, idle work
+# without reserve is +0.2% -- together they are +2.0%.
+_FEED_RESERVE_DAYS = 2
 _TROUGH_STATE = {
     0: {"last_step": -1, "pending": []},
     1: {"last_step": -1, "pending": []},
@@ -507,6 +515,31 @@ def _preempt_shift(obs, action, step):
     return action
 
 
+def _reserve_feed_wheat(obs, market):
+    """Keep _FEED_RESERVE_DAYS of feed WHEAT out of the tape's SELL orders."""
+    _seat, farm = _farm(obs)
+    animals = sum(
+        1
+        for row in (_get(farm, "tiles", []) or [])
+        for tile in (row if isinstance(row, list) else [row])
+        if isinstance(tile, dict) and tile.get("animal")
+    )
+    if not animals:
+        return market
+    shed = _get(_get(obs, "private", {}) or {}, "shed", {}) or {}
+    sellable = max(0, int(shed.get("WHEAT", 0) or 0) - animals * _FEED_RESERVE_DAYS)
+    kept = []
+    for raw in market:
+        order = list(raw)
+        if len(order) >= 3 and order[0] == "SELL" and order[1] == "WHEAT":
+            order[2] = min(int(order[2]), sellable)
+            if order[2] <= 0:
+                continue
+            sellable -= order[2]
+        kept.append(order)
+    return kept
+
+
 def _safe_market(obs, action):
     action = _align_hands(action, obs)
     remaining = _projected_shed(obs, action)
@@ -525,7 +558,7 @@ def _safe_market(obs, action):
             order[2] = quantity
             remaining[item] = max(0, int(remaining.get(item, 0) or 0) - quantity)
         market.append(order)
-    action["market"] = market[:10]
+    action["market"] = _reserve_feed_wheat(obs, market[:10])
     return action
 
 

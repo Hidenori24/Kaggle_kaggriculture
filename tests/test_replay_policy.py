@@ -137,3 +137,36 @@ def test_idle_filler_never_displaces_a_tape_action():
             assert agent(observation)["hands"][0] == list(tape_hands[0])
             return
     raise AssertionError("no non-PASS tape hand action found to check")
+
+
+def _wheat_sale_observation(shed_wheat, animals):
+    # Step 120's tape sells 25 WHEAT, well above any reserve, so the reserve is
+    # what decides the quantity.
+    tiles = [[None] * 5 for _ in range(5)]
+    for i in range(animals):
+        tiles[i // 5][i % 5] = {"kind": "PASTURE", "animal": "COW"}
+    return {
+        "step": 120,
+        "player": 0,
+        "farms": [{"farmer": [4, 4], "hands": [], "tiles": tiles}],
+        "private": {"shed": {"WHEAT": shed_wheat}, "inventories": [{}]},
+        "market": {"prices": {"WHEAT": 30}},
+    }
+
+
+def test_feed_wheat_is_reserved_from_sale():
+    # 4 animals x 2 days = 8 held back out of 20, leaving 12 of the tape's 25.
+    assert _sell_quantity(agent(_wheat_sale_observation(20, 4)), "WHEAT") == 12
+    # Exactly at the reserve, nothing may be sold.
+    assert _sell_quantity(agent(_wheat_sale_observation(8, 4)), "WHEAT") is None
+    # Below it, still nothing.
+    assert _sell_quantity(agent(_wheat_sale_observation(3, 4)), "WHEAT") is None
+
+
+def test_feed_reserve_scales_with_the_herd():
+    assert _sell_quantity(agent(_wheat_sale_observation(20, 1)), "WHEAT") == 18
+    assert _sell_quantity(agent(_wheat_sale_observation(20, 9)), "WHEAT") == 2
+
+
+def test_feed_reserve_does_not_apply_without_animals():
+    assert _sell_quantity(agent(_wheat_sale_observation(20, 0)), "WHEAT") == 20
