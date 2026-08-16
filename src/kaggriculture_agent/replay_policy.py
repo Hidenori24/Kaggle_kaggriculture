@@ -273,6 +273,61 @@ def _weed_repair_action(obs, action, step):
     return _align_hands(action, obs)
 
 
+def _idle_work(obs, action):
+    """Give an idling actor the job on the tile it is already standing on.
+
+    We PASS 1,047 of 6,901 actor-steps.  Every recorded opponent passes less:
+    the mirrors that run our own tape pass 813-820 and beat us by 6.1-7.8%,
+    and the two adaptive players pass 625-683 and beat us by 21.6-28.3%.
+    Against the one opponent that passes as much as we do (Manifolds1, 1,050)
+    the match was our closest at -4.5%.
+
+    Almost the entire difference against the mirrors is one op:
+    COLLECT_FERTILIZER, 312-314 for them against 254 for us.  The tape was
+    transcribed from a replay and the idle steps are where the transcription
+    is thinnest, so these are actions the original had and ours lost.
+
+    Only the actor's current tile is considered, so nothing moves and the
+    tape's routing is untouched; an idle step either finds work under its
+    feet or stays a PASS.  The jobs are limited to the ones that cannot hurt:
+    fertilizer has a price curve that absorbs the volume, and feeding,
+    watering and digging prevent losses rather than add sellable stock.
+    Harvesting and caring are deliberately excluded -- they produce more of
+    the four premium goods, whose whole distance to the price floor is 59-158
+    units.
+    """
+    action = _align_hands(action, obs)
+    _seat, farm = _farm(obs)
+    private = _get(obs, "private", {}) or {}
+    inventories = list(_get(private, "inventories", []) or [])
+    positions = [_get(farm, "farmer"), *list(_get(farm, "hands", []) or [])]
+    units = [action.get("farmer", ["PASS"]), *list(action.get("hands") or [])]
+
+    for index, position in enumerate(positions):
+        if index >= len(units):
+            break
+        current = units[index]
+        if isinstance(current, list) and current and current[0] != "PASS":
+            continue
+        tile = _tile_at(farm, position)
+        if not isinstance(tile, dict):
+            continue
+        inventory = inventories[index] if index < len(inventories) else {}
+        if "animal" in tile:
+            if tile.get("fertilizer_available"):
+                units[index] = ["COLLECT_FERTILIZER"]
+            elif not tile.get("fed_today") and int(_get(inventory, "WHEAT", 0) or 0) > 0:
+                units[index] = ["FEED"]
+        elif tile.get("kind") == "PLANT" and not tile.get("watered_today"):
+            units[index] = ["WATER"]
+        elif tile.get("kind") == "WEED":
+            units[index] = ["DIG"]
+
+    action["farmer"] = units[0] if units else ["PASS"]
+    action["hands"] = units[1:]
+    return _align_hands(action, obs)
+
+
 def _shed_access(size):
     half = size // 2
     return {
@@ -561,6 +616,7 @@ def agent(obs):
     try:
         step = _step(obs)
         action = _weed_repair_action(obs, _copy_action(_ACTIONS[step]), step)
+        action = _idle_work(obs, action)
         action = _repay_shift(obs, action, step)
         action = _safe_market(obs, action)
         action = _preempt_shift(obs, action, step)
