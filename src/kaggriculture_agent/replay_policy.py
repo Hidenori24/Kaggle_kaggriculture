@@ -168,27 +168,6 @@ _SELLABLE = (
     "FERTILIZER", "EGG", "TOMATO", "CARROT",
 )
 
-# Prices are a function of market inventory, and the town eats inventory (so
-# prices recover) every `townShopSellInterval` steps -- but the interpreter
-# runs _process_market *before* _town_consume.  A step where step % 4 == 0
-# therefore trades against the most depleted market of the cycle, and the very
-# next step trades against the freshly restocked one.  The tape puts 957 of
-# its 1774 scheduled SELL units on exactly that trough step, because it
-# harvests at the end of a day and sells at the top of the next.
-_TOWN_SELL_INTERVAL = 4
-# Deferring is only safe where it cannot starve the tape of something it is
-# about to spend.  Two guards, both learned the hard way:
-#   * A step carrying any BUY_* order keeps its sales.  The tape's purchases
-#     assume the proceeds of that same step; deferring them unconditionally
-#     measured -49.8% and left animals dead (2 of 14 alive).
-#   * The shed is a shared 100-unit store.  Deferring while it is nearly full
-#     is how the price-floor experiment pinned it and starved out room for
-#     feed WHEAT.  Stay well clear of the cap.
-_TROUGH_SHED_LIMIT = 80
-_TROUGH_STATE = {
-    0: {"last_step": -1, "pending": []},
-    1: {"last_step": -1, "pending": []},
-}
 
 
 def _get(obj, key, default=None):
@@ -546,58 +525,6 @@ def _terminal_market(obs, action):
     return action
 
 
-def _trough_state(obs, step):
-    seat = 1 if int(_get(obs, "player", 0) or 0) == 1 else 0
-    state = _TROUGH_STATE[seat]
-    if step == 0 or step < int(state.get("last_step", -1)):
-        state = {"last_step": step, "pending": []}
-        _TROUGH_STATE[seat] = state
-    state["last_step"] = step
-    return state
-
-
-def _shift_sells_off_trough(obs, action, step):
-    """Move a trough-step SELL to the next step, where the town has restocked.
-
-    Re-emitted units are only ever held for one step, and only when the step
-    spends nothing and the shed has room, so neither cash timing nor shed
-    capacity drifts the way the withdrawn price-floor experiment made them.
-    """
-    state = _trough_state(obs, step)
-    market = [list(order) for order in (action.get("market") or []) if order]
-
-    pending, state["pending"] = state["pending"], []
-    if pending:
-        extra = []
-        for order in pending:
-            existing = next(
-                (row for row in market
-                 if len(row) >= 3 and row[0] == "SELL" and row[1] == order[1]),
-                None,
-            )
-            if existing is None:
-                extra.append(list(order))
-            else:
-                existing[2] += order[2]
-        market = extra + market
-
-    last_step = len(_ACTIONS) - 1
-    if step % _TOWN_SELL_INTERVAL == 0 and step != last_step:
-        shed = _get(_get(obs, "private", {}) or {}, "shed", {}) or {}
-        occupancy = sum(max(0, int(value or 0)) for value in shed.values())
-        spends = any(row and str(row[0]).startswith("BUY_") for row in market)
-        if not spends and occupancy < _TROUGH_SHED_LIMIT:
-            keep, defer = [], []
-            for row in market:
-                (defer if (len(row) >= 3 and row[0] == "SELL") else keep).append(row)
-            if defer:
-                state["pending"] = defer
-                market = keep
-
-    action["market"] = market[:10]
-    return action
-
-
 def _prioritise_sells(obs, action):
     """Put SELL orders first, largest expected proceeds first.
 
@@ -637,10 +564,6 @@ def agent(obs):
         action = _repay_shift(obs, action, step)
         action = _safe_market(obs, action)
         action = _preempt_shift(obs, action, step)
-        action = _safe_market(obs, action)
-        action = _shift_sells_off_trough(obs, action, step)
-        # Re-clamp: units carried over from the previous step still have to fit
-        # what the shed actually holds now.
         action = _safe_market(obs, action)
         if step == len(_ACTIONS) - 1:
             action = _terminal_market(obs, action)
