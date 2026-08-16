@@ -164,6 +164,16 @@ _PREEMPT_START = 120
 _PREEMPT_STOP = 680
 _PREMIUM = ("STRAWBERRY", "MELON", "MILK", "WOOL")
 _FERTILIZER_RESERVE = 20
+_TURNS_PER_DAY = 24
+_LAND_DAY = 12
+_LAND_CASH_FLOOR = 6000
+_SEED_CASH_FLOOR = 2000
+_SEED_BATCH = 10
+_CARROT_FIRST_YIELD = 2
+_EXTRA_HANDS = 6
+_HIRE_BATCH = 3
+_HIRE_CASH_FLOOR = 8000
+_HIRE_COST_CAP = 150
 _IDLE_RUNS = {}
 _EXCURSION = {0: {}, 1: {}}
 _SELLABLE = (
@@ -367,14 +377,214 @@ def _toward(position, target, farm):
     return None
 
 
-def _fertilizer_tiles(farm):
+def _unlocked_count(farm):
+    return len(_get(farm, "unlocked_quadrants", []) or [])
+
+
+def _in_last_quadrant(position, size):
+    half = size // 2
+    return position[0] >= half and position[1] >= half
+
+
+def _buy_land(obs, action, step):
+    """Unlock the fourth quadrant, which the tape leaves locked all season.
+
+    Twenty-five of the hundred tiles are never opened.  Our own farm is full
+    from day 12 -- one to six empty tiles, no room to plant into -- so the
+    locked quadrant is the only production headroom that exists.
+
+    Jacob Alstrup, the opponent who beat us by 21.6% and is the only one of
+    the five to run eighteen animals and hold sixty-eight crops on day 20,
+    issues BUY_LAND on days 6, 11 and 12.  Everyone else including us stops
+    at two.  The third costs 4,000 and we are holding 8,500-10,000 by day 12,
+    so it is affordable exactly when they take it.
+
+    The tile geometry makes it the cheap quadrant to work, too.  LAND_ORDER
+    opens SE last, and the shed-access tiles sit on the SE inner corner, so
+    the new ground is nearest to the shed of any quadrant.
+    """
+    _seat, farm = _farm(obs)
+    day = step // _TURNS_PER_DAY
+    if day < _LAND_DAY or _unlocked_count(farm) >= 4:
+        return action
+    if float(_get(farm, "money", 0) or 0) < _LAND_CASH_FLOOR:
+        return action
+    market = [list(order) for order in (action.get("market") or []) if order]
+    if len(market) >= 10 or any(order[0] == "BUY_LAND" for order in market):
+        return action
+    action["market"] = market + [["BUY_LAND"]]
+    return action
+
+
+def _buy_carrot_seeds(obs, action, step):
+    """Keep enough carrot seed on hand to fill the new quadrant.
+
+    Carrot is the crop that can absorb the extra volume.  Its above-I0 curve
+    is sqrt against T=450, so it takes hundreds of surplus units to move,
+    where MELON and WOOL are squares that collapse inside sixty.  It is also
+    the fastest: first yield on day 2 against 10 for strawberry and melon,
+    which matters when the ground only opens on day 12.
+
+    Both adaptive opponents buy it and we buy none -- ali dzaki 16 seeds,
+    Jacob Alstrup 10, us 0.
+    """
+    _seat, farm = _farm(obs)
+    if _unlocked_count(farm) < 4:
+        return action
+    if float(_get(farm, "money", 0) or 0) < _SEED_CASH_FLOOR:
+        return action
+    market = [list(order) for order in (action.get("market") or []) if order]
+    if len(market) >= 10 or any(order[0] == "BUY_SEED" for order in market):
+        return action
+    size = len(_get(farm, "tiles", []) or [])
+    empty = sum(
+        1
+        for y, row in enumerate(_get(farm, "tiles", []) or [])
+        for x, tile in enumerate(row or [])
+        if tile is None and _in_last_quadrant((x, y), size)
+    )
+    held = int(_get(_get(obs, "private", {}) or {}, "seeds", {}).get("CARROT", 0) or 0)
+    wanted = min(empty - held, _SEED_BATCH)
+    if wanted > 0:
+        action["market"] = market + [["BUY_SEED", "CARROT", wanted]]
+    return action
+
+
+def _fib(n):
+    a, b = 1, 1
+    for _ in range(max(0, int(n))):
+        a, b = b, a + b
+    return a
+
+
+def _tape_hand_count(step):
+    return len(_ACTIONS[min(max(int(step), 0), len(_ACTIONS) - 1)].get("hands") or [])
+
+
+def _extra_hires(obs, action, step):
+    """Hire hands past the end of the tape's own roster.
+
+    A hand hired beyond the tape's hand count has no tape action at any step
+    -- `_align_hands` pads it with PASS forever -- so it needs no excursion
+    budget and never has to be anywhere in particular.  That is the labour
+    the fourth quadrant needs.  The excursion router cannot supply it: the
+    tape's actors work the NW quadrant, a round trip to SE is twenty-odd
+    steps, and only the longest idle runs can cover it.  Routing carrots
+    through it left twenty-plus tiles empty all season.
+
+    Hiring is only cheap early in a day.  The n-th hire of a day costs
+    fib(n) and the roster resets at every rollover, so the first few are
+    pocket change and the fifteenth is 610, the twentieth 6,765.  The tape
+    hires 277 times over the season -- about nine a day, but up to fourteen
+    on its heaviest days -- so appending a fixed six put our hires at
+    positions fifteen through twenty and burned roughly 16,700 a day.  That
+    run ended with 12,279 against a 95,000 baseline.
+
+    So the roster target is not the constraint, price is: hire only while the
+    next one still costs less than `_HIRE_COST_CAP`, and take whatever
+    headcount that buys on the day.
+    """
+    _seat, farm = _farm(obs)
+    if _unlocked_count(farm) < 4:
+        return action
+    if float(_get(farm, "money", 0) or 0) < _HIRE_CASH_FLOOR:
+        return action
+    market = [list(order) for order in (action.get("market") or []) if order]
+    room = 10 - len(market)
+    if room <= 0:
+        return action
+    have = len(_get(farm, "hands", []) or [])
+    target = _tape_hand_count(step) + _EXTRA_HANDS
+    hires_today = int(_get(farm, "hires_today", 0) or 0)
+    pending = sum(1 for order in market if order[0] == "HIRE")
+    wanted = 0
+    while (wanted < min(room, _HIRE_BATCH)
+           and have + pending + wanted < target
+           and _fib(hires_today + pending + wanted) <= _HIRE_COST_CAP):
+        wanted += 1
+    if wanted > 0:
+        action["market"] = market + [["HIRE"] for _ in range(wanted)]
+    return action
+
+
+def _surplus_plan(obs, action, step):
+    """Send the hands the tape does not own to work the fourth quadrant.
+
+    These actors carry no tape obligation, so unlike `_idle_route` they walk
+    to the nearest errand and stay there -- no round-trip budget, no return
+    leg.  They are the only workers that can keep twenty-five tiles planted,
+    watered and harvested.
+    """
+    action = _align_hands(action, obs)
+    _seat, farm = _farm(obs)
+    units = list(action.get("hands") or [])
+    positions = list(_get(farm, "hands", []) or [])
+    first = _tape_hand_count(step)
+    if first >= len(units):
+        return action
+
+    errands = _errands(obs, farm, step)
+    claimed = set()
+    for index in range(first, len(units)):
+        if index >= len(positions) or not positions[index]:
+            break
+        here = (int(positions[index][0]), int(positions[index][1]))
+        if here in errands and here not in claimed:
+            units[index] = list(errands[here])
+            claimed.add(here)
+            continue
+        reachable = [
+            (abs(here[0] - t[0]) + abs(here[1] - t[1]), t)
+            for t in errands if t not in claimed
+        ]
+        if not reachable:
+            continue
+        _distance, target = min(reachable)
+        move = _toward(here, target, farm)
+        if move is None:
+            continue
+        claimed.add(target)
+        units[index] = [move]
+
+    action["hands"] = units
+    return _align_hands(action, obs)
+
+
+def _errands(obs, farm, step):
+    """Tiles worth a detour, as {position: action}.
+
+    Fertilizer anywhere on the farm, plus the carrot cycle but *only* inside
+    the fourth quadrant.  The restriction is the lesson from the rejected
+    watering variant: offering the router every unwatered plant on the farm
+    put fifty-plus targets in front of a nearest-first search and pulled every
+    actor off the scarce, valuable errand, measuring -3.0% where fertilizer
+    alone measured +1.14%.  Twenty-five tiles clustered against the shed keep
+    the target set small and the trips short.
+    """
+    errands = {}
     tiles = _get(farm, "tiles", []) or []
-    found = []
+    size = len(tiles)
+    day = step // _TURNS_PER_DAY
+    seeds = int(_get(_get(obs, "private", {}) or {}, "seeds", {}).get("CARROT", 0) or 0)
+    planted = 0
     for y, row in enumerate(tiles):
         for x, tile in enumerate(row or []):
             if isinstance(tile, dict) and "animal" in tile and tile.get("fertilizer_available"):
-                found.append((x, y))
-    return found
+                errands[(x, y)] = ["COLLECT_FERTILIZER"]
+                continue
+            if not _in_last_quadrant((x, y), size):
+                continue
+            if tile is None:
+                if planted < seeds:
+                    errands[(x, y)] = ["PLANT", "CARROT"]
+                    planted += 1
+            elif isinstance(tile, dict) and tile.get("crop") == "CARROT":
+                age = day - int(tile.get("planted_day", day) or 0)
+                if int(tile.get("yield_units", 0) or 0) > 0 and age >= _CARROT_FIRST_YIELD:
+                    errands[(x, y)] = ["HARVEST"]
+                elif not tile.get("watered_today"):
+                    errands[(x, y)] = ["WATER"]
+    return errands
 
 
 def _idle_route(obs, action, step):
@@ -402,7 +612,7 @@ def _idle_route(obs, action, step):
 
     units = [action.get("farmer", ["PASS"]), *list(action.get("hands") or [])]
     positions = [_get(farm, "farmer"), *list(_get(farm, "hands", []) or [])]
-    available = _fertilizer_tiles(farm)
+    errands = _errands(obs, farm, step)
     claimed = {tuple(trip["target"]) for key, trip in state.items() if key != "last_step"}
 
     for index, position in enumerate(positions):
@@ -420,7 +630,7 @@ def _idle_route(obs, action, step):
             remaining = _idle_run(step, actor)
             reachable = [
                 (abs(here[0] - t[0]) + abs(here[1] - t[1]), t)
-                for t in available if t not in claimed and t != here
+                for t in errands if t not in claimed and t != here
             ]
             reachable = [(d, t) for d, t in reachable if 2 * d + 1 <= remaining]
             if not reachable:
@@ -432,7 +642,7 @@ def _idle_route(obs, action, step):
 
         if not trip["returning"]:
             if here == tuple(trip["target"]):
-                units[index] = ["COLLECT_FERTILIZER"]
+                units[index] = list(errands.get(here, ["COLLECT_FERTILIZER"]))
                 trip["returning"] = True
                 continue
             move = _toward(here, trip["target"], farm)
@@ -743,6 +953,27 @@ def _release_fertilizer(obs, action):
     return action
 
 
+def _release_carrot(obs, action):
+    """Sell carrots outright; nothing on the farm consumes them.
+
+    Fertilizer needs a reserve because the tape picks it up to FERTILIZE.
+    Carrot has no such second use, and its sqrt above-curve against T=450
+    absorbs the volume, so the whole holding goes every step it can.
+    """
+    action = _align_hands(action, obs)
+    market = [list(order) for order in (action.get("market") or []) if order]
+    if len(market) >= 10:
+        return action
+    if any(len(order) >= 3 and order[0] == "SELL" and order[1] == "CARROT"
+           for order in market):
+        return action
+    quantity = int(_projected_shed(obs, action).get("CARROT", 0) or 0)
+    if quantity > 0:
+        market.append(["SELL", "CARROT", quantity])
+    action["market"] = market[:10]
+    return action
+
+
 def _prioritise_sells(obs, action):
     """Put SELL orders first, largest expected proceeds first.
 
@@ -781,11 +1012,16 @@ def agent(obs):
         action = _weed_repair_action(obs, _copy_action(_ACTIONS[step]), step)
         action = _idle_work(obs, action)
         action = _idle_route(obs, action, step)
+        action = _surplus_plan(obs, action, step)
         action = _repay_shift(obs, action, step)
         action = _safe_market(obs, action)
         action = _preempt_shift(obs, action, step)
         action = _safe_market(obs, action)
         action = _release_fertilizer(obs, action)
+        action = _release_carrot(obs, action)
+        action = _buy_land(obs, action, step)
+        action = _buy_carrot_seeds(obs, action, step)
+        action = _extra_hires(obs, action, step)
         if step == len(_ACTIONS) - 1:
             action = _terminal_market(obs, action)
         return _prioritise_sells(obs, _align_hands(action, obs))
