@@ -1,4 +1,47 @@
-from kaggriculture_agent.replay_policy import _ACTIONS, agent
+import pytest
+
+from kaggriculture_agent.replay_policy import (
+    _ACTIONS,
+    _EXCURSION,
+    _idle_run,
+    _idle_work,
+    _release_fertilizer,
+    agent,
+)
+
+
+@pytest.fixture(autouse=True)
+def _clear_excursions():
+    for state in _EXCURSION.values():
+        state.clear()
+    yield
+    for state in _EXCURSION.values():
+        state.clear()
+
+
+def _animal(**overrides):
+    tile = {
+        "kind": "PASTURE",
+        "animal": "COW",
+        "fed_today": True,
+        "cared_today": False,
+        "fertilizer_available": True,
+        "yield_units": 0,
+    }
+    tile.update(overrides)
+    return tile
+
+
+def _observation(tiles, hands=(), inventories=(), shed=None, step=200):
+    return {
+        "step": step,
+        "player": 0,
+        "farms": [{"farmer": [0, 0], "hands": [list(h) for h in hands], "tiles": tiles,
+                   "money": 5000}],
+        "private": {"shed": dict(shed or {}),
+                    "inventories": [dict(i) for i in (inventories or [{}])]},
+        "market": {"prices": {"FERTILIZER": 100}},
+    }
 
 
 def test_replay_policy_is_deterministic_and_bounded():
@@ -63,3 +106,60 @@ def test_market_stays_within_the_ten_order_cap_after_reordering():
         "market": {"prices": {"WHEAT": 30, "FERTILIZER": 40}},
     }
     assert len(agent(observation)["market"]) <= 10
+
+
+def test_idle_actor_collects_the_fertilizer_it_is_standing_on():
+    tiles = [[None] * 10 for _ in range(10)]
+    tiles[0][0] = _animal()
+    action = {"farmer": ["PASS"], "hands": [], "market": []}
+    out = _idle_work(_observation(tiles), action)
+    assert out["farmer"] == ["COLLECT_FERTILIZER"]
+
+
+def test_idle_work_never_overrides_an_action_the_tape_asked_for():
+    tiles = [[None] * 10 for _ in range(10)]
+    tiles[0][0] = _animal()
+    action = {"farmer": ["HARVEST"], "hands": [], "market": []}
+    out = _idle_work(_observation(tiles), action)
+    assert out["farmer"] == ["HARVEST"]
+
+
+def test_idle_work_feeds_only_when_the_actor_carries_wheat():
+    tiles = [[None] * 10 for _ in range(10)]
+    tiles[0][0] = _animal(fed_today=False, fertilizer_available=False)
+    obs = _observation(tiles, inventories=[{}])
+    assert _idle_work(obs, {"farmer": ["PASS"], "hands": [], "market": []})["farmer"] == ["PASS"]
+    obs = _observation(tiles, inventories=[{"WHEAT": 1}])
+    assert _idle_work(obs, {"farmer": ["PASS"], "hands": [], "market": []})["farmer"] == ["FEED"]
+
+
+def test_idle_run_matches_the_tape():
+    # The run reported for a step is the count of consecutive PASSes the tape
+    # holds that actor for, counting the step itself.
+    for step in (100, 300, 500):
+        expected = 0
+        for ahead in range(step, len(_ACTIONS)):
+            if (_ACTIONS[ahead].get("farmer") or ["PASS"])[0] != "PASS":
+                break
+            expected += 1
+        assert _idle_run(step, "farmer") == expected
+
+
+def test_fertilizer_release_keeps_a_working_stock_back():
+    # The tape spends 80 actions on FERTILIZE and picks the unit up from the
+    # shed, so the reserve has to survive the drain.
+    tiles = [[None] * 10 for _ in range(10)]
+    obs = _observation(tiles, shed={"FERTILIZER": 50})
+    out = _release_fertilizer(obs, {"farmer": ["PASS"], "hands": [], "market": []})
+    assert out["market"] == [["SELL", "FERTILIZER", 30]]
+
+    obs = _observation(tiles, shed={"FERTILIZER": 20})
+    out = _release_fertilizer(obs, {"farmer": ["PASS"], "hands": [], "market": []})
+    assert out["market"] == []
+
+
+def test_fertilizer_release_leaves_a_full_order_book_alone():
+    tiles = [[None] * 10 for _ in range(10)]
+    obs = _observation(tiles, shed={"FERTILIZER": 90})
+    full = {"farmer": ["PASS"], "hands": [], "market": [["HIRE"]] * 10}
+    assert _release_fertilizer(obs, full)["market"] == [["HIRE"]] * 10

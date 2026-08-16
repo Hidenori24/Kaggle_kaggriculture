@@ -163,6 +163,9 @@ _PREEMPT_LEVELS = ((2, 0.75, 24), (4, 0.50, 16), (6, 0.25, 8))
 _PREEMPT_START = 120
 _PREEMPT_STOP = 680
 _PREMIUM = ("STRAWBERRY", "MELON", "MILK", "WOOL")
+_FERTILIZER_RESERVE = 20
+_IDLE_RUNS = {}
+_EXCURSION = {0: {}, 1: {}}
 _SELLABLE = (
     "STRAWBERRY", "MELON", "MILK", "WOOL", "WHEAT",
     "FERTILIZER", "EGG", "TOMATO", "CARROT",
@@ -322,6 +325,130 @@ def _idle_work(obs, action):
             units[index] = ["WATER"]
         elif tile.get("kind") == "WEED":
             units[index] = ["DIG"]
+
+    action["farmer"] = units[0] if units else ["PASS"]
+    action["hands"] = units[1:]
+    return _align_hands(action, obs)
+
+
+def _idle_run(step, actor):
+    """How many more consecutive steps the tape leaves this actor idle."""
+    key = (step, actor)
+    cached = _IDLE_RUNS.get(key)
+    if cached is not None:
+        return cached
+    length = 0
+    for ahead in range(step, len(_ACTIONS)):
+        if _trace_actor_action(ahead, actor)[0] != "PASS":
+            break
+        length += 1
+    _IDLE_RUNS[key] = length
+    return length
+
+
+def _toward(position, target, farm):
+    """One orthogonal step from `position` towards `target`, or None."""
+    x, y = int(position[0]), int(position[1])
+    tx, ty = int(target[0]), int(target[1])
+    dx, dy = tx - x, ty - y
+    moves = []
+    if abs(dx) >= abs(dy):
+        moves = [("EAST" if dx > 0 else "WEST", (x + (1 if dx > 0 else -1), y)),
+                 ("SOUTH" if dy > 0 else "NORTH", (x, y + (1 if dy > 0 else -1)))]
+    else:
+        moves = [("SOUTH" if dy > 0 else "NORTH", (x, y + (1 if dy > 0 else -1))),
+                 ("EAST" if dx > 0 else "WEST", (x + (1 if dx > 0 else -1), y))]
+    for name, destination in moves:
+        if (destination[0] == x and destination[1] == y):
+            continue
+        if _tile_at(farm, destination) == "LOCKED":
+            continue
+        return name
+    return None
+
+
+def _fertilizer_tiles(farm):
+    tiles = _get(farm, "tiles", []) or []
+    found = []
+    for y, row in enumerate(tiles):
+        for x, tile in enumerate(row or []):
+            if isinstance(tile, dict) and "animal" in tile and tile.get("fertilizer_available"):
+                found.append((x, y))
+    return found
+
+
+def _idle_route(obs, action, step):
+    """Walk an actor the tape has parked over to a fertilizer it can reach.
+
+    `_idle_work` only looks under an actor's feet, and that converts about
+    fifteen idle steps a match -- far short of the sixty-odd COLLECT_FERTILIZER
+    the mirrors running our own tape get.  They are not standing on those
+    animals either; they are walking to them.
+
+    The tape is a fixed list, so its idle stretches are known in advance:
+    878 of the 1,046 idle actor-steps sit in runs of four or more, and one
+    run is 115 steps long.  An actor is therefore allowed to leave only when
+    the round trip fits inside its own idle run with a step to spare for the
+    job, and it walks back to the tile it left from.  When the tape speaks
+    again the actor is where the tape expects it, so routing is preserved
+    exactly rather than approximately.
+    """
+    action = _align_hands(action, obs)
+    seat, farm = _farm(obs)
+    state = _EXCURSION[seat]
+    if step <= int(state.get("last_step", -1)):
+        state.clear()
+    state["last_step"] = step
+
+    units = [action.get("farmer", ["PASS"]), *list(action.get("hands") or [])]
+    positions = [_get(farm, "farmer"), *list(_get(farm, "hands", []) or [])]
+    available = _fertilizer_tiles(farm)
+    claimed = {tuple(trip["target"]) for key, trip in state.items() if key != "last_step"}
+
+    for index, position in enumerate(positions):
+        if index >= len(units) or not position:
+            break
+        actor = "farmer" if index == 0 else index - 1
+        current = units[index]
+        if isinstance(current, list) and current and current[0] != "PASS":
+            state.pop(actor, None)
+            continue
+        here = (int(position[0]), int(position[1]))
+        trip = state.get(actor)
+
+        if trip is None:
+            remaining = _idle_run(step, actor)
+            reachable = [
+                (abs(here[0] - t[0]) + abs(here[1] - t[1]), t)
+                for t in available if t not in claimed and t != here
+            ]
+            reachable = [(d, t) for d, t in reachable if 2 * d + 1 <= remaining]
+            if not reachable:
+                continue
+            _distance, target = min(reachable)
+            trip = {"home": here, "target": target, "returning": False}
+            state[actor] = trip
+            claimed.add(target)
+
+        if not trip["returning"]:
+            if here == tuple(trip["target"]):
+                units[index] = ["COLLECT_FERTILIZER"]
+                trip["returning"] = True
+                continue
+            move = _toward(here, trip["target"], farm)
+            if move is None:
+                state.pop(actor, None)
+                continue
+            units[index] = [move]
+        else:
+            if here == tuple(trip["home"]):
+                state.pop(actor, None)
+                continue
+            move = _toward(here, trip["home"], farm)
+            if move is None:
+                state.pop(actor, None)
+                continue
+            units[index] = [move]
 
     action["farmer"] = units[0] if units else ["PASS"]
     action["hands"] = units[1:]
@@ -580,6 +707,42 @@ def _terminal_market(obs, action):
     return action
 
 
+def _release_fertilizer(obs, action):
+    """Sell fertilizer the tape is never going to sell, keeping a working stock.
+
+    Fertilizer is the one product we can add volume in without wrecking a
+    price.  Its above-curve is linear at target 0.40 against T=200, so a
+    surplus unit costs 0.2 of price where a surplus MELON or WOOL costs its
+    square; the floor is roughly 500 surplus units away.  Fourteen animals
+    offer one unit a day each and the season is thirty days, so the farm can
+    produce on the order of 400 -- and the tape sells 176.
+
+    The tape's SELL schedule is a fixed quantity recorded against a smaller
+    farm, so the surplus has nowhere to go: the shed sits at 82-90 of its
+    100 capacity from day 20 on.  This drains it into whatever order slot is
+    spare.
+
+    The reserve is the point.  Selling the shed out measured -21% to -23%
+    head-to-head, and fertilizer is why: the tape spends 80 actions on
+    FERTILIZE, which doubles a watered crop's yield gain, and a hand gets the
+    unit by PICKUP from the shed.  An empty shelf silently turns all eighty
+    into no-ops.  Twenty units covers the largest gap between consecutive
+    FERTILIZE runs with room to spare.
+    """
+    action = _align_hands(action, obs)
+    market = [list(order) for order in (action.get("market") or []) if order]
+    if len(market) >= 10:
+        return action
+    if any(len(order) >= 3 and order[0] == "SELL" and order[1] == "FERTILIZER"
+           for order in market):
+        return action
+    surplus = int(_projected_shed(obs, action).get("FERTILIZER", 0) or 0) - _FERTILIZER_RESERVE
+    if surplus > 0:
+        market.append(["SELL", "FERTILIZER", surplus])
+    action["market"] = market[:10]
+    return action
+
+
 def _prioritise_sells(obs, action):
     """Put SELL orders first, largest expected proceeds first.
 
@@ -617,10 +780,12 @@ def agent(obs):
         step = _step(obs)
         action = _weed_repair_action(obs, _copy_action(_ACTIONS[step]), step)
         action = _idle_work(obs, action)
+        action = _idle_route(obs, action, step)
         action = _repay_shift(obs, action, step)
         action = _safe_market(obs, action)
         action = _preempt_shift(obs, action, step)
         action = _safe_market(obs, action)
+        action = _release_fertilizer(obs, action)
         if step == len(_ACTIONS) - 1:
             action = _terminal_market(obs, action)
         return _prioritise_sells(obs, _align_hands(action, obs))
