@@ -26,3 +26,4 @@ jobs:
       - run: python scripts/simulate.py --episodes 3
       - run: python scripts/benchmark.py --json > benchmark.json
       - run: python scripts/package_submission.py --output dist/submission.tar.gz
+

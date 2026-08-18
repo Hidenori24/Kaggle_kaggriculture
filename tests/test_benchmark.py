@@ -28,3 +28,4 @@ def test_benchmark_diagnostics_use_the_requested_seat():
         "final_animals": 4,
         "min_animals_after_day10": 4,
     }
+
