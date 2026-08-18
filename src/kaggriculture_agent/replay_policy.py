@@ -162,6 +162,9 @@ _PREEMPT_MAX_CLONE_DISTANCE = 6
 _PREEMPT_LEVELS = ((2, 0.75, 24), (4, 0.50, 16), (6, 0.25, 8))
 _PREEMPT_START = 120
 _PREEMPT_STOP = 680
+_DEMAND_SAFETY_DAYS = 2
+_DEMAND_SELL_BATCH = 24
+_DEMAND_PRICE_FLOOR = {"WHEAT": 20.0, "FERTILIZER": 20.0}
 _PREMIUM = ("STRAWBERRY", "MELON", "MILK", "WOOL")
 _SELLABLE = (
     "STRAWBERRY", "MELON", "MILK", "WOOL", "WHEAT",
@@ -426,6 +429,69 @@ def _remaining_shed(obs, action):
     return remaining
 
 
+def _future_input_demand(step):
+    """Count scheduled feed and fertilizer consumption after ``step``."""
+    feed = 0
+    fertilizer = 0
+    for action in _ACTIONS[step + 1 :]:
+        operations = [action.get("farmer", [])] + list(action.get("hands", []) or [])
+        for operation in operations:
+            if not operation:
+                continue
+            if operation[0] == "FEED":
+                feed += 1
+            elif operation[0] == "FERTILIZE":
+                fertilizer += 1
+    return feed, fertilizer
+
+
+def _forecast_surplus_sells(obs, action, step):
+    """Sell input inventory only after forecasting all remaining consumption."""
+    if not action.get("market"):
+        return action
+    prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
+    remaining = _remaining_shed(obs, action)
+    _seat, farm = _farm(obs)
+    tiles = _get(farm, "tiles", []) or []
+    shed = _get(_get(obs, "private", {}) or {}, "shed", {}) or {}
+    animals = sum(
+        1
+        for row in tiles
+        for tile in (row if isinstance(row, list) else [row])
+        if isinstance(tile, dict) and "animal" in tile
+    ) + sum(int(shed.get(animal, 0) or 0) for animal in ("COW", "SHEEP", "GOOSE"))
+    future_feed, future_fertilizer = _future_input_demand(step)
+    reserves = {
+        "WHEAT": future_feed + _DEMAND_SAFETY_DAYS * max(1, animals),
+        "FERTILIZER": future_fertilizer + 2,
+    }
+    market = [list(order) for order in action.get("market", []) if order]
+    for item in ("WHEAT", "FERTILIZER"):
+        price = float(prices.get(item, 0) or 0)
+        pressure = sum(remaining.values()) >= 85
+        if price < _DEMAND_PRICE_FLOOR[item] and not pressure:
+            continue
+        surplus = max(0, int(remaining.get(item, 0) or 0) - reserves[item])
+        if surplus <= 0:
+            continue
+        quantity = min(surplus, _DEMAND_SELL_BATCH)
+        existing = next(
+            (
+                order
+                for order in market
+                if len(order) >= 3 and order[0] == "SELL" and order[1] == item
+            ),
+            None,
+        )
+        if existing is not None:
+            existing[2] = int(existing[2]) + quantity
+        elif len(market) < 10:
+            market.append(["SELL", item, quantity])
+        remaining[item] = max(0, int(remaining.get(item, 0) or 0) - quantity)
+    action["market"] = market[:10]
+    return action
+
+
 def _preempt_shift(obs, action, step):
     """Shift a bounded part of the next scheduled premium SELL one turn earlier."""
     if not _PREEMPT_ENABLED or not (_PREEMPT_START <= step < _PREEMPT_STOP):
@@ -540,7 +606,8 @@ def _prioritise_sells(obs, action):
     that moves the most inventory is the one that most needs a fresh market,
     because its own units walk the price down as they fill.
     """
-    market = [list(order) for order in (action.get("market") or []) if order]
+    _coalesce_sells(action)
+    market = action["market"]
     prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
 
     def proceeds(order):
@@ -557,6 +624,41 @@ def _prioritise_sells(obs, action):
     return action
 
 
+def _coalesce_sells(action):
+    """Combine split SELL orders for the same item in one market turn.
+
+    The replay tape sometimes emits several small SELL orders for one item
+    while walking between the shed and the town.  The market processes order
+    indices competitively, so fragmented orders can give the opponent several
+    chances to reach the same item first.  Coalescing preserves total quantity
+    and keeps the first order position for each item; non-SELL orders retain
+    their relative order.
+    """
+    market = [list(order) for order in (action.get("market") or []) if order]
+    merged = []
+    sell_index = {}
+    for order in market:
+        if len(order) >= 3 and order[0] == "SELL":
+            try:
+                quantity = max(0, int(order[2]))
+            except (TypeError, ValueError):
+                quantity = 0
+            if quantity <= 0:
+                continue
+            item = order[1]
+            index = sell_index.get(item)
+            if index is None:
+                order[2] = quantity
+                sell_index[item] = len(merged)
+                merged.append(order)
+            else:
+                merged[index][2] = int(merged[index][2]) + quantity
+            continue
+        merged.append(order)
+    action["market"] = merged
+    return action
+
+
 def agent(obs):
     try:
         step = _step(obs)
@@ -564,6 +666,8 @@ def agent(obs):
         action = _repay_shift(obs, action, step)
         action = _safe_market(obs, action)
         action = _preempt_shift(obs, action, step)
+        action = _safe_market(obs, action)
+        action = _forecast_surplus_sells(obs, action, step)
         action = _safe_market(obs, action)
         if step == len(_ACTIONS) - 1:
             action = _terminal_market(obs, action)
