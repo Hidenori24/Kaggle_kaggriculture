@@ -134,7 +134,21 @@ def main() -> int:
     }
     try:
         verify_competition_is_open()
-        verify_submission_budget(message)
+        try:
+            verify_submission_budget(message)
+            record["history_preflight"] = "verified"
+        except subprocess.CalledProcessError:
+            # Kaggle's history endpoint can be temporarily unavailable for
+            # this simulation competition. The submit endpoint is
+            # authoritative, so do not skip a submission only because this
+            # read failed. Duplicate and daily-limit errors remain
+            # RuntimeError and still stop safely.
+            record["history_preflight"] = "unavailable"
+            print(
+                "Submission history preflight unavailable; attempting the "
+                "authoritative Kaggle submit endpoint.",
+                file=sys.stderr,
+            )
         output = submit(message)
         print(output, end="")
         record["status"] = "submitted"
