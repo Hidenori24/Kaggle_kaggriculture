@@ -16,24 +16,60 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c
         with:
           python-version: '3.11'
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements-dev.txt
+      - run: python -m ruff check .
       - run: python -m pytest -q
       - run: python scripts/simulate.py --episodes 5 | tee simulation.json
-      - run: python scripts/package_submission.py --output dist/submission.tar.gz
+      - name: Hostile replay benchmark
+        run: python scripts/benchmark.py --json > benchmark.json
+      - name: Fetch immutable stable baseline
+        run: git fetch origin baseline/score-1882:refs/remotes/origin/baseline/score-1882
+      - name: Head-to-head submission gate
+        run: python scripts/head_to_head.py --ref origin/baseline/score-1882 --seeds 16 > head-to-head.txt
+      - name: Record package metadata
+        run: python scripts/package_submission.py --output dist/submission.tar.gz > package-metadata.json
       - name: Submit to Kaggriculture
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           GITHUB_SHA: ${{ github.sha }}
         run: |
           python scripts/submit.py 2>&1 | tee submission-result.txt
+      - name: Upload validation and submission record
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kaggriculture-submission-${{ github.sha }}
+          if-no-files-found: ignore
+          path: |
+            simulation.json
+            benchmark.json
+            head-to-head.txt
+            package-metadata.json
+            submission-result.txt
+            submission-result.json
+
+      - name: Write Actions summary
+        if: always()
+        run: |
           {
             echo '## Kaggriculture submission'
             echo
-            cat submission-result.txt
+            echo "Commit: $GITHUB_SHA"
+            echo
+            echo '### Head-to-head gate'
+            cat head-to-head.txt 2>/dev/null || true
+            echo
+            echo '### Submission result'
+            cat submission-result.txt 2>/dev/null || true
+            echo
+            echo '### Submission record'
+            cat submission-result.json 2>/dev/null || true
           } >> "$GITHUB_STEP_SUMMARY"
 

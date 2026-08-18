@@ -13,12 +13,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c
         with:
           python-version: '3.11'
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements-dev.txt
+      - run: python -m ruff check .
       - run: python -m pytest -q
       - run: python scripts/simulate.py --episodes 3
+      - run: python scripts/benchmark.py --json > benchmark.json
       - run: python scripts/package_submission.py --output dist/submission.tar.gz

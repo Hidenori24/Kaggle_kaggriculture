@@ -254,3 +254,14 @@
 - 原因は`benchmark.py`の既知の欠陥。記録相手は市場を奪い合わないため、売却を1ステップ遅らせても不利にならず、PR #14では**+0.30%**と出ていた。注文インデックスの優位は競争相手がいて初めて意味を持つ（PR #15で確認済み、極端な検証では順序逆転が−46.5%）。
 - 対応: `_shift_sells_off_trough`・`_trough_state`・`_TOWN_SELL_INTERVAL`・`_TROUGH_SHED_LIMIT`・`_TROUGH_STATE`と関連テスト4件を削除。`_prioritise_sells`（PR #15）は維持する。
 - 検証: `python -m pytest -q`は15件成功、`ruff`クリーン。`python scripts/head_to_head.py --seeds 16`は対`origin/main`で**32勝0敗、平均 +2.32%、中央値 +1.92%**。
+
+## 2026-08-18: submission-gate-hardening
+
+- `experiment/gate-hardening-20260818`を`submission@85740a2`から作成。
+- `benchmark.py`の2P側診断が常に1Pのprivate observationを参照していたため、対象seatの観測を使うよう修正。回帰テストを追加。
+- `ci.yml`と`submit.yml`にruff、完全履歴checkout、敵対ベンチマークを追加。
+- `submit.yml`はimmutableな`origin/baseline/score-1882`を取得し、16 seed×両席のhead-to-headを提出ゲートとして実行する。パッケージSHA、コミットSHA、Kaggle CLI結果、submission履歴行はArtifactとActions Summaryへ保存する。
+- `submit.py`は提出後にKaggle submission履歴を再取得し、submission ID・公開/非公開スコアが未反映の場合も、提出済みとしてlookup状態を記録する。
+- 検証結果: `ruff` clean、`pytest` **18 passed**、`simulate.py --episodes 3` は **186,676 / 174,302 / 188,588**。
+- 敵対ベンチマークは **8勝0敗**、平均報酬 **148,816.9**。診断上の最大shedは一部対戦で100だが、動物数は全試合14、10日目以降の最小は12。
+- head-to-headは`origin/main`に対して **6勝10敗16引き分け**だったため、コミット本文の32勝0敗とは比較対象が異なることを確認。immutable baseline `origin/baseline/score-1882`に対しては16 seed×両席で **32勝0敗、平均マージン+2.14%、中央値+2.08%**。提出ゲートと同じ条件で合格した。

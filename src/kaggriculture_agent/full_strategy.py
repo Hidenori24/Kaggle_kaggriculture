@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """Capability-complete, deterministic Kaggriculture policy.
 
 This module intentionally keeps the policy state in the observation.  That is
 important for Kaggle replay/restart behavior: every decision can be reproduced
 from the current observation without relying on process-local memory.
 """
+
+from __future__ import annotations
 
 from typing import Any
 
@@ -160,7 +160,6 @@ def _market_orders(
 
     money = float(_value(farm, "money", 0) or 0)
     hires_today = int(_value(farm, "hires_today", 0) or 0)
-    hands = _value(farm, "hands", []) or []
     remaining_hires = max(0, 10 - hires_today)
     hire_costs = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]
     hire_budget = sum(hire_costs[hires_today : hires_today + remaining_hires])

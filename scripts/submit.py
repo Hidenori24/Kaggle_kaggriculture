@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import csv
+import hashlib
 import io
 import json
 import subprocess
@@ -66,6 +67,47 @@ def submit(message: str) -> str:
     return result.stdout
 
 
+def package_sha256() -> str:
+    digest = hashlib.sha256()
+    with PACKAGE.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def lookup_submission(message: str) -> dict[str, object]:
+    """Return the matching Kaggle history row without failing a submission.
+
+    Kaggle accepts the submission before this lookup runs.  A transient CLI
+    or score propagation failure must therefore be recorded as a lookup error
+    rather than causing a false-negative workflow after a real submission.
+    """
+    raw = run_cli("competitions", "submissions", COMPETITION, "--csv", "--quiet")
+    rows = list(csv.DictReader(io.StringIO(raw))) if raw.strip() else []
+    matches = []
+    for row in rows:
+        text = " ".join(str(value) for value in row.values())
+        if message in text:
+            matches.append(row)
+    if not matches:
+        return {"lookup_status": "submitted_but_not_visible_yet"}
+    row = matches[0]
+    return {
+        "lookup_status": "visible",
+        "submission_id": row.get("ref") or row.get("id") or row.get("submissionId"),
+        "public_score": row.get("publicScore") or row.get("public_score"),
+        "private_score": row.get("privateScore") or row.get("private_score"),
+        "history_row": row,
+    }
+
+
+def write_submission_record(record: dict[str, object]) -> None:
+    Path("submission-result.json").write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
     if not os.environ.get("KAGGLE_API_TOKEN"):
         print("Submission stopped: KAGGLE_API_TOKEN is not configured.", file=sys.stderr)
@@ -79,12 +121,34 @@ def main() -> int:
         return 2
 
     commit = os.environ.get("GITHUB_SHA", "local")[:12]
+    full_commit = os.environ.get("GITHUB_SHA", "local")
     message = f"kaggriculture-agent commit={commit}"
+    record: dict[str, object] = {
+        "competition": COMPETITION,
+        "commit_sha": full_commit,
+        "message": message,
+        "package": str(PACKAGE),
+        "package_sha256": package_sha256(),
+        "package_size_bytes": PACKAGE.stat().st_size,
+        "status": "not_submitted",
+    }
     try:
         verify_competition_is_open()
         verify_submission_budget(message)
-        print(submit(message), end="")
+        output = submit(message)
+        print(output, end="")
+        record["status"] = "submitted"
+        record["kaggle_cli_output"] = output.strip()
+        try:
+            record.update(lookup_submission(message))
+        except (subprocess.CalledProcessError, OSError) as exc:
+            record["lookup_status"] = "lookup_failed"
+            record["lookup_error"] = str(exc)
+        write_submission_record(record)
     except (RuntimeError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        record["status"] = "stopped_safely"
+        record["error"] = str(exc)
+        write_submission_record(record)
         print(f"Submission stopped safely: {exc}", file=sys.stderr)
         return 2
     return 0
