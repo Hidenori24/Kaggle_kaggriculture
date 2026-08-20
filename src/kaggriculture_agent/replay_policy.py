@@ -162,6 +162,15 @@ _PREEMPT_MAX_CLONE_DISTANCE = 6
 _PREEMPT_LEVELS = ((2, 0.75, 24), (4, 0.50, 16), (6, 0.25, 8))
 _PREEMPT_START = 120
 _PREEMPT_STOP = 680
+_DEMAND_SAFETY_DAYS = 2
+_DEMAND_SELL_BATCH = 24
+_DEMAND_PRICE_FLOOR = {"WHEAT": 20.0, "FERTILIZER": 20.0}
+_ECONOMIC_OVERLAY_ENABLED = True
+_ECONOMIC_START_DAY = 18
+_ECONOMIC_STOP_DAY = 24
+_ECONOMIC_RESERVE_DAYS = 4
+_ECONOMIC_MIN_CASH = 12000.0
+_ECONOMIC_SEED_SWAP = 1
 _PREMIUM = ("STRAWBERRY", "MELON", "MILK", "WOOL")
 _SELLABLE = (
     "STRAWBERRY", "MELON", "MILK", "WOOL", "WHEAT",
@@ -426,6 +435,146 @@ def _remaining_shed(obs, action):
     return remaining
 
 
+def _future_input_demand(step):
+    """Count scheduled feed and fertilizer consumption after ``step``."""
+    feed = 0
+    fertilizer = 0
+    for action in _ACTIONS[step + 1 :]:
+        operations = [action.get("farmer", [])] + list(action.get("hands", []) or [])
+        for operation in operations:
+            if not operation:
+                continue
+            if operation[0] == "FEED":
+                feed += 1
+            elif operation[0] == "FERTILIZE":
+                fertilizer += 1
+    return feed, fertilizer
+
+
+def _future_tape_counts(step, end_step):
+    """Count future tape operations in a bounded planning window."""
+    counts = {"FEED": 0, "FERTILIZE": 0, "PLANT_WHEAT": 0}
+    for action in _ACTIONS[step + 1 : min(len(_ACTIONS), end_step + 1)]:
+        operations = [action.get("farmer", [])] + list(action.get("hands", []) or [])
+        for operation in operations:
+            if not operation:
+                continue
+            if operation[0] == "FEED":
+                counts["FEED"] += 1
+            elif operation[0] == "FERTILIZE":
+                counts["FERTILIZE"] += 1
+            elif operation[0] == "PLANT" and len(operation) >= 2 and operation[1] == "WHEAT":
+                counts["PLANT_WHEAT"] += 1
+    return counts
+
+
+def _economic_state(obs, step):
+    """Extract the small, observable state used by the guarded overlay."""
+    _seat, farm = _farm(obs)
+    private = _get(obs, "private", {}) or {}
+    shed = _get(private, "shed", {}) or {}
+    seeds = _get(private, "seeds", {}) or {}
+    tiles = _get(farm, "tiles", []) or []
+    animals = sum(
+        1
+        for row in tiles
+        for tile in (row if isinstance(row, list) else [row])
+        if isinstance(tile, dict) and tile.get("animal")
+    )
+    window_end = step + _ECONOMIC_RESERVE_DAYS * 24
+    forecast = _future_tape_counts(step, window_end)
+    return {
+        "day": step // 24,
+        "cash": float(_get(farm, "money", 0) or 0),
+        "animals": animals,
+        "shed_units": sum(int(value or 0) for value in shed.values()),
+        "wheat": int(shed.get("WHEAT", 0) or 0),
+        "wheat_seeds": int(seeds.get("WHEAT", 0) or 0),
+        "feed_window": forecast["FEED"],
+        "plant_wheat_window": forecast["PLANT_WHEAT"],
+    }
+
+
+def _economic_overlay(obs, action, step):
+    """Make one guarded WHEAT seed swap in the late production window.
+
+    This deliberately preserves the market order count and all hand actions.
+    It only swaps a one-unit WHEAT feed purchase when the near-term feed
+    reserve is already covered and the tape plans to plant WHEAT soon.
+    """
+    if not _ECONOMIC_OVERLAY_ENABLED:
+        return action
+    state = _economic_state(obs, step)
+    if not (_ECONOMIC_START_DAY <= state["day"] <= _ECONOMIC_STOP_DAY):
+        return action
+    if state["cash"] < _ECONOMIC_MIN_CASH or state["shed_units"] >= 80:
+        return action
+    reserve = state["feed_window"] + _DEMAND_SAFETY_DAYS * max(1, state["animals"])
+    if state["wheat"] < reserve + 2 or state["plant_wheat_window"] <= state["wheat_seeds"]:
+        return action
+
+    market = [list(order) for order in action.get("market", []) if order]
+    if any(len(order) >= 2 and order[0] == "BUY_SEED" and order[1] == "WHEAT" for order in market):
+        return action
+    for order in market:
+        if len(order) >= 3 and order[0] == "BUY_PRODUCT" and order[1] == "WHEAT":
+            try:
+                quantity = int(order[2])
+            except (TypeError, ValueError):
+                continue
+            if quantity == _ECONOMIC_SEED_SWAP:
+                order[0] = "BUY_SEED"
+                return {**action, "market": market}
+    return action
+
+
+def _forecast_surplus_sells(obs, action, step):
+    """Sell input inventory only after forecasting all remaining consumption."""
+    if not action.get("market"):
+        return action
+    prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
+    remaining = _remaining_shed(obs, action)
+    _seat, farm = _farm(obs)
+    tiles = _get(farm, "tiles", []) or []
+    shed = _get(_get(obs, "private", {}) or {}, "shed", {}) or {}
+    animals = sum(
+        1
+        for row in tiles
+        for tile in (row if isinstance(row, list) else [row])
+        if isinstance(tile, dict) and "animal" in tile
+    ) + sum(int(shed.get(animal, 0) or 0) for animal in ("COW", "SHEEP", "GOOSE"))
+    future_feed, future_fertilizer = _future_input_demand(step)
+    reserves = {
+        "WHEAT": future_feed + _DEMAND_SAFETY_DAYS * max(1, animals),
+        "FERTILIZER": future_fertilizer + 2,
+    }
+    market = [list(order) for order in action.get("market", []) if order]
+    for item in ("WHEAT", "FERTILIZER"):
+        price = float(prices.get(item, 0) or 0)
+        pressure = sum(remaining.values()) >= 85
+        if price < _DEMAND_PRICE_FLOOR[item] and not pressure:
+            continue
+        surplus = max(0, int(remaining.get(item, 0) or 0) - reserves[item])
+        if surplus <= 0:
+            continue
+        quantity = min(surplus, _DEMAND_SELL_BATCH)
+        existing = next(
+            (
+                order
+                for order in market
+                if len(order) >= 3 and order[0] == "SELL" and order[1] == item
+            ),
+            None,
+        )
+        if existing is not None:
+            existing[2] = int(existing[2]) + quantity
+        elif len(market) < 10:
+            market.append(["SELL", item, quantity])
+        remaining[item] = max(0, int(remaining.get(item, 0) or 0) - quantity)
+    action["market"] = market[:10]
+    return action
+
+
 def _preempt_shift(obs, action, step):
     """Shift a bounded part of the next scheduled premium SELL one turn earlier."""
     if not _PREEMPT_ENABLED or not (_PREEMPT_START <= step < _PREEMPT_STOP):
@@ -540,7 +689,8 @@ def _prioritise_sells(obs, action):
     that moves the most inventory is the one that most needs a fresh market,
     because its own units walk the price down as they fill.
     """
-    market = [list(order) for order in (action.get("market") or []) if order]
+    _coalesce_sells(action)
+    market = action["market"]
     prices = _get(_get(obs, "market", {}) or {}, "prices", {}) or {}
 
     def proceeds(order):
@@ -557,6 +707,41 @@ def _prioritise_sells(obs, action):
     return action
 
 
+def _coalesce_sells(action):
+    """Combine split SELL orders for the same item in one market turn.
+
+    The replay tape sometimes emits several small SELL orders for one item
+    while walking between the shed and the town.  The market processes order
+    indices competitively, so fragmented orders can give the opponent several
+    chances to reach the same item first.  Coalescing preserves total quantity
+    and keeps the first order position for each item; non-SELL orders retain
+    their relative order.
+    """
+    market = [list(order) for order in (action.get("market") or []) if order]
+    merged = []
+    sell_index = {}
+    for order in market:
+        if len(order) >= 3 and order[0] == "SELL":
+            try:
+                quantity = max(0, int(order[2]))
+            except (TypeError, ValueError):
+                quantity = 0
+            if quantity <= 0:
+                continue
+            item = order[1]
+            index = sell_index.get(item)
+            if index is None:
+                order[2] = quantity
+                sell_index[item] = len(merged)
+                merged.append(order)
+            else:
+                merged[index][2] = int(merged[index][2]) + quantity
+            continue
+        merged.append(order)
+    action["market"] = merged
+    return action
+
+
 def agent(obs):
     try:
         step = _step(obs)
@@ -565,6 +750,9 @@ def agent(obs):
         action = _safe_market(obs, action)
         action = _preempt_shift(obs, action, step)
         action = _safe_market(obs, action)
+        action = _forecast_surplus_sells(obs, action, step)
+        action = _safe_market(obs, action)
+        action = _economic_overlay(obs, action, step)
         if step == len(_ACTIONS) - 1:
             action = _terminal_market(obs, action)
         return _prioritise_sells(obs, _align_hands(action, obs))
