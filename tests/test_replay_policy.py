@@ -1,4 +1,11 @@
-from kaggriculture_agent.replay_policy import _ACTIONS, agent
+from kaggriculture_agent.replay_policy import (
+    _ACTIONS,
+    _coalesce_sells,
+    _economic_overlay,
+    _forecast_surplus_sells,
+    _future_input_demand,
+    agent,
+)
 
 
 def test_replay_policy_is_deterministic_and_bounded():
@@ -63,3 +70,70 @@ def test_market_stays_within_the_ten_order_cap_after_reordering():
         "market": {"prices": {"WHEAT": 30, "FERTILIZER": 40}},
     }
     assert len(agent(observation)["market"]) <= 10
+
+
+def test_split_sells_are_coalesced_without_changing_total_quantity():
+    action = {
+        "market": [
+            ["SELL", "MILK", 4],
+            ["HIRE"],
+            ["SELL", "WOOL", 2],
+            ["SELL", "MILK", 3],
+        ]
+    }
+
+    result = _coalesce_sells(action)
+
+    assert result["market"] == [
+        ["SELL", "MILK", 7],
+        ["HIRE"],
+        ["SELL", "WOOL", 2],
+    ]
+
+
+def test_future_input_demand_is_empty_after_the_tape():
+    assert _future_input_demand(len(_ACTIONS) - 1) == (0, 0)
+
+
+def test_forecast_reserves_inputs_before_selling():
+    observation = {
+        "day": 5,
+        "step": 120,
+        "player": 0,
+        "farms": [{"farmer": [4, 4], "hands": [], "tiles": [[None] * 5 for _ in range(5)]}],
+        "private": {"shed": {"WHEAT": 40, "FERTILIZER": 20}, "inventories": [{}]},
+        "market": {"prices": {"WHEAT": 50, "FERTILIZER": 100}},
+    }
+    action = {"farmer": ["PASS"], "hands": [], "market": [["HIRE"]]}
+    result = _forecast_surplus_sells(observation, action, 120)
+    assert result["market"] == [["HIRE"]]
+
+
+def _economic_observation(wheat=60, money=20000):
+    return {
+        "step": 436,
+        "player": 0,
+        "farms": [{"money": money, "hands": [], "tiles": [[None] * 5 for _ in range(5)]}],
+        "private": {
+            "shed": {"WHEAT": wheat},
+            "seeds": {"WHEAT": 0},
+            "inventories": [{}],
+        },
+        "market": {"prices": {"WHEAT": 25}},
+    }
+
+
+def test_economic_overlay_swaps_only_a_safe_one_unit_wheat_purchase():
+    action = {"farmer": ["PASS"], "hands": [], "market": [["BUY_PRODUCT", "WHEAT", 1]]}
+
+    result = _economic_overlay(_economic_observation(), action, 436)
+
+    assert result["market"] == [["BUY_SEED", "WHEAT", 1]]
+
+
+def test_economic_overlay_preserves_feed_purchase_when_reserve_is_low():
+    action = {"farmer": ["PASS"], "hands": [], "market": [["BUY_PRODUCT", "WHEAT", 1]]}
+
+    result = _economic_overlay(_economic_observation(wheat=1), action, 436)
+
+    assert result["market"] == [["BUY_PRODUCT", "WHEAT", 1]]

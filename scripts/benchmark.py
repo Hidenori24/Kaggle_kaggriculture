@@ -85,7 +85,10 @@ def _diagnostics(env, seat):
     final_animals = 0
     min_animals_after_day10 = None
     for step in env.steps:
-        observation = step[0]["observation"]
+        # Each env step contains one observation per seat.  Using seat 0 here
+        # made the reward comparison correct but reported the wrong shed and
+        # animal diagnostics for every match where we played seat 1.
+        observation = step[seat]["observation"]
         if observation["hour"] != 0:
             continue
         peak_shed = max(peak_shed, sum(observation["private"]["shed"].values()))
