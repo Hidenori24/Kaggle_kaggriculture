@@ -1,6 +1,7 @@
 from kaggriculture_agent.replay_policy import (
     _ACTIONS,
     _coalesce_sells,
+    _economic_overlay,
     _forecast_surplus_sells,
     _future_input_demand,
     agent,
@@ -106,3 +107,33 @@ def test_forecast_reserves_inputs_before_selling():
     action = {"farmer": ["PASS"], "hands": [], "market": [["HIRE"]]}
     result = _forecast_surplus_sells(observation, action, 120)
     assert result["market"] == [["HIRE"]]
+
+
+def _economic_observation(wheat=60, money=20000):
+    return {
+        "step": 436,
+        "player": 0,
+        "farms": [{"money": money, "hands": [], "tiles": [[None] * 5 for _ in range(5)]}],
+        "private": {
+            "shed": {"WHEAT": wheat},
+            "seeds": {"WHEAT": 0},
+            "inventories": [{}],
+        },
+        "market": {"prices": {"WHEAT": 25}},
+    }
+
+
+def test_economic_overlay_swaps_only_a_safe_one_unit_wheat_purchase():
+    action = {"farmer": ["PASS"], "hands": [], "market": [["BUY_PRODUCT", "WHEAT", 1]]}
+
+    result = _economic_overlay(_economic_observation(), action, 436)
+
+    assert result["market"] == [["BUY_SEED", "WHEAT", 1]]
+
+
+def test_economic_overlay_preserves_feed_purchase_when_reserve_is_low():
+    action = {"farmer": ["PASS"], "hands": [], "market": [["BUY_PRODUCT", "WHEAT", 1]]}
+
+    result = _economic_overlay(_economic_observation(wheat=1), action, 436)
+
+    assert result["market"] == [["BUY_PRODUCT", "WHEAT", 1]]
