@@ -40,9 +40,23 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from kaggle_environments import make  # noqa: E402
 
-from kaggriculture_agent.replay_policy import agent  # noqa: E402
-
 OPPONENTS_PATH = ROOT / "benchmarks" / "opponents.json"
+
+
+def load_policy(name):
+    """Load a local challenger without changing the production entry point."""
+    if name == "replay":
+        from kaggriculture_agent.replay_policy import agent
+        return agent
+    if name == "full":
+        from kaggriculture_agent.full_strategy import choose_action
+        return choose_action
+    if name == "baseline":
+        from kaggriculture_agent.strategy import BaselineConfig, choose_action
+        return lambda observation: choose_action(
+            observation, BaselineConfig(enable_expansion=False)
+        )
+    raise ValueError(f"unknown policy: {name}")
 
 
 def load_opponents(path=OPPONENTS_PATH):
@@ -112,14 +126,14 @@ def _diagnostics(env, seat):
     }
 
 
-def run_match(opponent, our_seat):
+def run_match(opponent, our_seat, policy):
     tape_agent = make_tape_agent(opponent["tape"])
     env = make(
         "kaggriculture",
         configuration={"seed": opponent["seed"]},
         debug=False,
     )
-    pair = [agent, tape_agent] if our_seat == 0 else [tape_agent, agent]
+    pair = [policy, tape_agent] if our_seat == 0 else [tape_agent, policy]
     env.run(pair)
     final = env.steps[-1]
     return {
@@ -134,6 +148,10 @@ def run_match(opponent, our_seat):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--opponent", help="run only this recorded opponent")
+    parser.add_argument(
+        "--policy", choices=("replay", "full", "baseline"), default="replay",
+        help="local policy to benchmark; replay is the production default",
+    )
     parser.add_argument("--json", action="store_true", help="emit raw JSON")
     args = parser.parse_args()
 
@@ -143,10 +161,11 @@ def main():
             parser.error(f"unknown opponent; have {sorted(opponents)}")
         opponents = {args.opponent: opponents[args.opponent]}
 
+    policy = load_policy(args.policy)
     matches = []
     for name, opponent in sorted(opponents.items()):
         for our_seat in (0, 1):
-            result = run_match(opponent, our_seat)
+            result = run_match(opponent, our_seat, policy)
             result["opponent"] = name
             matches.append(result)
 

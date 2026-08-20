@@ -13,6 +13,8 @@ import copy
 import json
 import zlib
 
+from .adaptive_economy import apply_adaptive_economy
+
 
 _ACTIONS = json.loads(zlib.decompress(base64.b85decode((
     'c-rk<O>Z2@k^L_`^Pv79Mft{&+LmCBC{WZkyo1JI0NXII@E&IOw%Gq}jYw8iSG;)fA~LH*jeKj6-Bpp1QCacv;>Az@clP&Re*Nd)'
@@ -435,11 +437,18 @@ def _remaining_shed(obs, action):
     return remaining
 
 
-def _future_input_demand(step):
-    """Count scheduled feed and fertilizer consumption after ``step``."""
+def _future_input_demand(step, end_step=None, net_purchases=False):
+    """Count scheduled input demand after ``step``.
+
+    The adaptive economy layer can use a short net horizon: scheduled
+    BUY_PRODUCT orders in that horizon replenish the same input it is
+    reserving. The legacy surplus-sell guard keeps the original gross-demand
+    behavior by using the default arguments.
+    """
     feed = 0
     fertilizer = 0
-    for action in _ACTIONS[step + 1 :]:
+    stop = len(_ACTIONS) if end_step is None else min(len(_ACTIONS), end_step + 1)
+    for action in _ACTIONS[step + 1 : stop]:
         operations = [action.get("farmer", [])] + list(action.get("hands", []) or [])
         for operation in operations:
             if not operation:
@@ -448,7 +457,23 @@ def _future_input_demand(step):
                 feed += 1
             elif operation[0] == "FERTILIZE":
                 fertilizer += 1
-    return feed, fertilizer
+        if net_purchases:
+            for order in action.get("market", []) or []:
+                if len(order) < 3:
+                    continue
+                try:
+                    quantity = max(0, int(order[2]))
+                except (TypeError, ValueError):
+                    continue
+                if order[0] == "BUY_PRODUCT" and order[1] == "WHEAT":
+                    feed -= quantity
+                elif order[0] == "BUY_PRODUCT" and order[1] == "FERTILIZER":
+                    fertilizer -= quantity
+                elif order[0] == "SELL" and order[1] == "WHEAT":
+                    feed += quantity
+                elif order[0] == "SELL" and order[1] == "FERTILIZER":
+                    fertilizer += quantity
+    return max(0, feed), max(0, fertilizer)
 
 
 def _future_tape_counts(step, end_step):
@@ -752,7 +777,20 @@ def agent(obs):
         action = _safe_market(obs, action)
         action = _forecast_surplus_sells(obs, action, step)
         action = _safe_market(obs, action)
-        action = _economic_overlay(obs, action, step)
+        future_feed, future_fertilizer = _future_input_demand(
+            step,
+            end_step=min(len(_ACTIONS) - 1, step + 6 * 24),
+            net_purchases=True,
+        )
+        future_counts = _future_tape_counts(step, min(len(_ACTIONS) - 1, step + 12 * 24))
+        action = apply_adaptive_economy(
+            obs,
+            action,
+            future_feed=future_feed,
+            future_fertilizer=future_fertilizer,
+            future_wheat_plants=future_counts["PLANT_WHEAT"],
+        )
+        action = _safe_market(obs, action)
         if step == len(_ACTIONS) - 1:
             action = _terminal_market(obs, action)
         return _prioritise_sells(obs, _align_hands(action, obs))
