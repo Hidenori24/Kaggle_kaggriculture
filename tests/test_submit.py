@@ -64,4 +64,3 @@ def test_duplicate_or_budget_error_still_stops_safely(tmp_path, monkeypatch):
     assert submitted == []
     record = json.loads((tmp_path / "submission-result.json").read_text(encoding="utf-8"))
     assert record["status"] == "stopped_safely"
-

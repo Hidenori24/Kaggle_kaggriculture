@@ -372,4 +372,3 @@ def choose_action(obs: Any) -> dict[str, Any]:
 
     return {"farmer": farmer_action, "hands": hand_actions, "market": _market_orders(obs, farm, private, day)}
 
-
