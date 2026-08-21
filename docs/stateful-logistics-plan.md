@@ -1,0 +1,45 @@
+# Stateful logistics redesign
+
+## Goal
+
+Keep the validated replay policy as the fallback while introducing a
+restart-safe state ledger and task scheduler.  The redesign must not assume
+that a previous action succeeded: every decision is derived from the current
+observation.
+
+## Stages
+
+1. **Ledger and shadow mode** — extract resources, workers, tiles, jobs, and
+   short-horizon pressure without changing actions.
+2. **Transport safety** — handle an already-loaded worker only when the
+   current observation proves that dropping the load is legal and the replay
+   action would otherwise strand it.
+3. **Animal and fertilizer jobs** — assign only urgent local work with an
+   explicit return path and feed reserve.
+4. **Crop portfolio** — choose short-cycle crops only when seed, planting,
+   harvest, and sale slots all exist in the same plan.
+5. **Market planner** — preserve the proven SELL ordering and optimize only
+   quantities that remain safe under the resource ledger.
+
+## Safety rules
+
+- The stable fallback remains unchanged until a challenger passes direct
+  head-to-head validation.
+- Never replace a PASS merely because a tile happens to be actionable; the
+  replacement must also have a transport or follow-up plan.
+- Preserve animal feed reserve and shed capacity before investing in crops.
+- Do not store user-provided episode JSON in the repository.
+- A challenger must pass pytest, Ruff, three simulations, hostile benchmark,
+  and the full head-to-head gate before it can reach `submission`.
+
+## Current implementation
+
+`src/kaggriculture_agent/logistics_state.py` provides the restart-safe ledger,
+resource plan, job candidates, and JSON-friendly shadow report.  It is
+intentionally not wired into the production action path yet.
+
+The first transport challenger was rejected: replacing a movement/PASS with
+`DROP` for safe products at the shed entrance scored **0-4**, with a mean
+margin of **-43.39%** against the stable reference over two seeds and both
+seats.  The lesson is that a local drop is not safe without a destination and
+follow-up plan for the worker's next job.

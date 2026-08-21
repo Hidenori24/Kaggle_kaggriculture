@@ -63,10 +63,17 @@ def load_reference(ref):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ref", default="origin/main", help="reference git revision")
+    parser.add_argument(
+        "--policy", choices=("replay", "stateful"), default="replay",
+        help="working-tree challenger policy",
+    )
     parser.add_argument("--seeds", type=int, default=12)
     args = parser.parse_args()
 
-    from kaggriculture_agent.replay_policy import agent as candidate
+    if args.policy == "stateful":
+        from kaggriculture_agent.stateful_policy import agent as candidate
+    else:
+        from kaggriculture_agent.replay_policy import agent as candidate
     reference = load_reference(args.ref).agent
 
     seeds = list(range(1, args.seeds + 1))
