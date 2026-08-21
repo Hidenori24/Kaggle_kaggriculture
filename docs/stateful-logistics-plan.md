@@ -63,3 +63,13 @@ shed capacity for the whole load.  It passed **42 tests**, matched the hostile
 benchmark at **8-0 / mean 148,901**, but scored only **1-3** in the direct
 head-to-head gate with mean margin **0.00%**.  It is neutral rather than an
 improvement and remains experimental.
+
+Two narrower local-job variants were also rejected.  Replacing PASS with a
+current-tile job for idle hands caused **0-4** in direct head-to-head with a
+mean margin of **-25.43%** and reduced animal retention.  Restricting the same
+idea to mature-crop HARVEST after step 600 improved the damage but still gave
+only **1-3** and **-0.25%** mean margin; the hostile benchmark mean fell from
+**148,901** to **148,555**.  These results rule out unconditional local work
+repairs.  The next design is a failure-triggered resynchronizer: it must first
+prove that the scheduled action failed, then replay the minimum missed
+transaction before returning to the tape.

@@ -64,7 +64,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ref", default="origin/main", help="reference git revision")
     parser.add_argument(
-        "--policy", choices=("replay", "stateful", "macro"), default="replay",
+        "--policy", choices=("replay", "stateful", "macro", "local", "late"), default="replay",
         help="working-tree challenger policy",
     )
     parser.add_argument("--seeds", type=int, default=12)
@@ -74,6 +74,10 @@ def main():
         from kaggriculture_agent.stateful_policy import agent as candidate
     elif args.policy == "macro":
         from kaggriculture_agent.macro_transport import agent as candidate
+    elif args.policy == "local":
+        from kaggriculture_agent.local_jobs_policy import agent as candidate
+    elif args.policy == "late":
+        from kaggriculture_agent.late_harvest_policy import agent as candidate
     else:
         from kaggriculture_agent.replay_policy import agent as candidate
     reference = load_reference(args.ref).agent
