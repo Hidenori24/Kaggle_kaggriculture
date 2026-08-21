@@ -51,6 +51,15 @@ def load_policy(name):
     if name == "legacy":
         from kaggriculture_agent.legacy_replay_policy import agent
         return agent
+    if name == "crop-mix":
+        from kaggriculture_agent.crop_mix_policy import agent
+        return agent
+    if name == "carrot-mix":
+        from kaggriculture_agent.carrot_mix_policy import agent
+        return agent
+    if name == "carrot-lane":
+        from kaggriculture_agent.carrot_lane_policy import agent
+        return agent
     if name == "full":
         from kaggriculture_agent.full_strategy import choose_action
         return choose_action
@@ -182,7 +191,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--opponent", help="run only this recorded opponent")
     parser.add_argument(
-        "--policy", choices=("replay", "legacy", "full", "baseline", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget"), default="replay",
+        "--policy", choices=("replay", "legacy", "crop-mix", "carrot-mix", "carrot-lane", "full", "baseline", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget"), default="replay",
         help="local policy to benchmark; replay is the production default",
     )
     parser.add_argument("--json", action="store_true", help="emit raw JSON")

@@ -74,7 +74,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ref", default="origin/main", help="reference git revision")
     parser.add_argument(
-        "--policy", choices=("replay", "legacy", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget"), default="replay",
+        "--candidate-ref",
+        help="load the candidate policy from this git revision instead of the working tree",
+    )
+    parser.add_argument(
+        "--policy", choices=("replay", "legacy", "crop-mix", "carrot-mix", "carrot-lane", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget"), default="replay",
         help="working-tree challenger policy",
     )
     parser.add_argument("--seeds", type=int, default=12)
@@ -82,6 +86,12 @@ def main():
 
     if args.policy == "legacy":
         from kaggriculture_agent.legacy_replay_policy import agent as candidate
+    elif args.policy == "crop-mix":
+        from kaggriculture_agent.crop_mix_policy import agent as candidate
+    elif args.policy == "carrot-mix":
+        from kaggriculture_agent.carrot_mix_policy import agent as candidate
+    elif args.policy == "carrot-lane":
+        from kaggriculture_agent.carrot_lane_policy import agent as candidate
     elif args.policy == "stateful":
         from kaggriculture_agent.stateful_policy import agent as candidate
     elif args.policy == "macro":
@@ -105,6 +115,8 @@ def main():
     else:
         from kaggriculture_agent.replay_policy import agent as candidate
     reference = load_reference(args.ref).agent
+    if args.candidate_ref:
+        candidate = load_reference(args.candidate_ref).agent
 
     seeds = list(range(1, args.seeds + 1))
     wins = losses = 0

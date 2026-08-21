@@ -362,3 +362,14 @@ Both candidates remain experiment-only.  The stable baseline, `main`, and
 `submission` were not changed.  The next investigation should compare the
 full action-layer differences between the 1942.6 replay and the later
 1200-point submissions, rather than adding another isolated market override.
+
+## 2026-08-21: recent-public-loss-and-fast-crop-lane
+
+- Kaggleの最新提出一覧を読み取り、`e33918999061`は1177.9、`2f3303525dc7`は1191.6、`61c7a9902fe5`は1190.4、`242aea1f1b44`は1171.8、`85740a2f71b5`は1256.2だった。過去の`286d730d9fbf`は1942.6だが、得点は相手プールに依存するため、過去スコアだけで復帰しない。
+- 最新の敗戦`95591154`（RngRng、seed 1382930769）は720ステップ完走し、自分68,001対相手83,613。日2の資金は自分4対相手108、日4は47対613、日17以降は相手の再投資が継続して最終差15,612になった。停止・タイムアウトではなく、生産規模と再投資速度の差である。
+- 同ログの行動差は、相手が`BUY_SEED CARROT` 37回、`BUY_SEED WHEAT` 81回、`PLANT` 233回だったのに対し、自分はCARROT購入0回、WHEAT種12回、`PLANT` 158回。相手はCARROT/WHEATの短期作物を増やし、こちらは飼料購入233回に依存していた。相手は追加の動物・作物・作業者も多く、単純な売却順序の問題ではない。
+- 過去リビジョンを同じ強者テープ（X1a0Ch3n、ali dzaki、各席）で比較する`compare_benchmark_refs.py`を追加した。`286d730d9fbf`は4勝/4試合・平均報酬130,433、`85740a2f71b5`は130,437、`2f3303525dc7`と`cc2ca51`は130,545で、いずれも4勝・平均マージン+26.84〜+27.08%。固定テープでは世代差がほぼ出ず、実戦相手の行動分布が主要な未観測要因と判断した。
+- CARROTの価格がWHEATより5以上高い場合に初回WHEAT種7個をCARROTへ変更する`carrot_lane_policy.py`を探索した。単体テスト3件は成功したが、敗戦テープ再生では現行167,800に対して94,921、HEADとの直接対決は0勝2敗・平均−61.93%。植付けだけを変えても固定された収穫・売却・移動計画と整合せず、大幅悪化したため不採用。
+- 先行して試したMELON→WHEATの`crop_mix_policy.py`は保守閾値200で直接対決1勝3敗・平均差ほぼ0%、CARROTへの小規模置換`carrot_mix_policy.py`も1勝1敗・平均差+0.01%で、敵対テープの8戦平均は現行と同じ148,901.1。どちらも実質的な改善ではないため不採用。
+- `analyze_episode_economics.py`を追加し、共有JSONを実行時だけ読み込んで日別の資金・shed・動物・土地・市場価格・作物配分を比較できるようにした。JSON本体はリポジトリへ保存しない。
+- 結論: 1200点の壁は、CARROTの単発切替や市場注文の局所overrideでは越えられない。次に試すべきは、短期作物の購入・植付け・収穫・売却、飼料、追加動物、作業者ルートを一体化した別policyであり、現行replayを直接対決で上回らない限り提出しない。今回も`stable`・`main`・`submission`は変更していない。

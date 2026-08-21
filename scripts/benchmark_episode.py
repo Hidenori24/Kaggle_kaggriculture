@@ -19,7 +19,16 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from kaggle_environments import make  # noqa: E402
 
-from kaggriculture_agent.replay_policy import agent  # noqa: E402
+from kaggriculture_agent.replay_policy import agent as replay_agent  # noqa: E402
+
+
+def _load_policy(name: str):
+    if name == "replay":
+        return replay_agent
+    if name == "carrot-lane":
+        from kaggriculture_agent.carrot_lane_policy import agent
+        return agent
+    raise ValueError(f"unknown policy: {name}")
 
 
 def _reference_agent(ref: str):
@@ -62,6 +71,7 @@ def main() -> None:
     parser.add_argument("episode", type=Path)
     parser.add_argument("--self", default="N_Matsumoto24")
     parser.add_argument("--our-seat", type=int, default=1, choices=(0, 1))
+    parser.add_argument("--policy", choices=("replay", "carrot-lane"), default="replay")
     parser.add_argument("--ref", help="also run a git reference policy")
     args = parser.parse_args()
 
@@ -75,7 +85,7 @@ def main() -> None:
         raise SystemExit("episode has no replay seed")
 
     opponent = _tape_agent(tape)
-    policies = [("candidate", agent)]
+    policies = [(args.policy, _load_policy(args.policy))]
     if args.ref:
         policies.append((args.ref, _reference_agent(args.ref)))
     results = []
