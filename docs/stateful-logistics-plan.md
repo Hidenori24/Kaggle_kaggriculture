@@ -43,3 +43,16 @@ The first transport challenger was rejected: replacing a movement/PASS with
 margin of **-43.39%** against the stable reference over two seeds and both
 seats.  The lesson is that a local drop is not safe without a destination and
 follow-up plan for the worker's next job.
+
+The registered `stateful` benchmark was then run against the four recorded
+opponent tapes.  It scored **4-8** with mean **84,974**, while the unchanged
+`replay` policy scored **8-8** with mean **148,901** on the same eight matches.
+The challenger is therefore rejected and must not be wired into production.
+This also confirms that the hostile benchmark is sensitive enough to catch a
+bad local logistics override.
+
+The next candidate must represent a complete, restart-safe macro plan:
+`load -> route -> unload -> return/next job`.  A one-turn action replacement is
+not eligible for promotion unless the current observation proves both the
+destination and the next legal action.  The planner may remain shadow-only
+until those invariants are covered by replay tests.

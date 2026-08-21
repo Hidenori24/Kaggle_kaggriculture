@@ -56,6 +56,9 @@ def load_policy(name):
         return lambda observation: choose_action(
             observation, BaselineConfig(enable_expansion=False)
         )
+    if name == "stateful":
+        from kaggriculture_agent.stateful_policy import agent
+        return agent
     raise ValueError(f"unknown policy: {name}")
 
 
@@ -149,7 +152,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--opponent", help="run only this recorded opponent")
     parser.add_argument(
-        "--policy", choices=("replay", "full", "baseline"), default="replay",
+        "--policy", choices=("replay", "full", "baseline", "stateful"), default="replay",
         help="local policy to benchmark; replay is the production default",
     )
     parser.add_argument("--json", action="store_true", help="emit raw JSON")
