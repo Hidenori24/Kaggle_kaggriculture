@@ -56,3 +56,10 @@ The next candidate must represent a complete, restart-safe macro plan:
 not eligible for promotion unless the current observation proves both the
 destination and the next legal action.  The planner may remain shadow-only
 until those invariants are covered by replay tests.
+
+The first complete-route prototype (`macro`) was deliberately restricted to
+actors whose replay action was `PASS`, saleable output only, and enough current
+shed capacity for the whole load.  It passed **42 tests**, matched the hostile
+benchmark at **8-0 / mean 148,901**, but scored only **1-3** in the direct
+head-to-head gate with mean margin **0.00%**.  It is neutral rather than an
+improvement and remains experimental.
