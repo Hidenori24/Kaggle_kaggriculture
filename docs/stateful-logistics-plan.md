@@ -45,7 +45,7 @@ seats.  The lesson is that a local drop is not safe without a destination and
 follow-up plan for the worker's next job.
 
 The registered `stateful` benchmark was then run against the four recorded
-opponent tapes.  It scored **4-8** with mean **84,974**, while the unchanged
+opponent tapes.  It scored **4-4** with mean **84,974**, while the unchanged
 `replay` policy scored **8-8** with mean **148,901** on the same eight matches.
 The challenger is therefore rejected and must not be wired into production.
 This also confirms that the hostile benchmark is sensitive enough to catch a
