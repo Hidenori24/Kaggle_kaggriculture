@@ -333,3 +333,32 @@
 - `pressure_order_policy`（暴落時だけ既存SELLを相対価格順に再配置）は直接対決`2-6`・平均`-0.84%`、`wheat_budget_policy`（飼料予備が十分な時にBUY_PRODUCT WHEATを1単位減量）は`2-6`・平均`0.00%`、`redundant_feed_policy`（fed_today済みへのFEEDだけPASS化）は`2-6`・平均`0.00%`だった。単体テストは`53 passed`、ruffはcleanだが、いずれも提出候補にはしない。
 - failure-triggered resynchronizerも検証したが、直接対決`0-4`・平均`-16.32%`、敵対ベンチ平均`133,238`、動物10頭まで低下したため却下した。失敗検出後の再試行でも固定テープの同期を壊し得る。
 - 結論: 1200突破には、固定テープの局所上書きではなく、WHEATの生産・給餌・販売を日単位の資金計画として組み替える必要がある。ただし作業者行動を一手だけ変える方式は既に複数回失敗しているため、次は完全な再計画を別policyとして作り、現行replayとの直接対決を通過した場合だけ採用する。
+## 2026-08-21: daily economic plan and input budget challengers
+
+The current public result is around 1200, while the earlier replay-only
+submission reached 1942.6.  The latest public loss was not a timeout: the
+agent ran through all 720 steps.  The replay analysis showed a large
+difference in WHEAT purchases and sales, so two bounded candidates were
+implemented on `experiment/stateful-logistics-20260821`.
+
+### Daily economic market plan
+
+`daily_economic_policy.py` keeps a small batch of existing SELL orders when a
+product is in a visible glut, then releases it after a price recovery or near
+the end of the season.  It changes no farmer or hand action and never creates
+more than the existing market-order budget.  Against the current policy for
+seeds 1 and 2 (both seats), it scored 0-4 with a mean margin of -3.41%.
+Rejected.
+
+### Just-in-time input budget
+
+`input_budget_policy.py` caps existing WHEAT/FERTILIZER purchases to a
+short-term observable feed/fertilizer requirement plus a safety reserve.  It
+never creates a market order.  Against the current policy for seeds 1 and 2,
+it scored 1-3 with a mean margin of +0.00%.  Rejected because it did not beat
+the predecessor.
+
+Both candidates remain experiment-only.  The stable baseline, `main`, and
+`submission` were not changed.  The next investigation should compare the
+full action-layer differences between the 1942.6 replay and the later
+1200-point submissions, rather than adding another isolated market override.

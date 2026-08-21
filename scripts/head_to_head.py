@@ -74,13 +74,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ref", default="origin/main", help="reference git revision")
     parser.add_argument(
-        "--policy", choices=("replay", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed"), default="replay",
+        "--policy", choices=("replay", "legacy", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget"), default="replay",
         help="working-tree challenger policy",
     )
     parser.add_argument("--seeds", type=int, default=12)
     args = parser.parse_args()
 
-    if args.policy == "stateful":
+    if args.policy == "legacy":
+        from kaggriculture_agent.legacy_replay_policy import agent as candidate
+    elif args.policy == "stateful":
         from kaggriculture_agent.stateful_policy import agent as candidate
     elif args.policy == "macro":
         from kaggriculture_agent.macro_transport import agent as candidate
@@ -96,6 +98,10 @@ def main():
         from kaggriculture_agent.wheat_budget_policy import agent as candidate
     elif args.policy == "redundant-feed":
         from kaggriculture_agent.redundant_feed_policy import agent as candidate
+    elif args.policy == "daily-economic":
+        from kaggriculture_agent.daily_economic_policy import agent as candidate
+    elif args.policy == "input-budget":
+        from kaggriculture_agent.input_budget_policy import agent as candidate
     else:
         from kaggriculture_agent.replay_policy import agent as candidate
     reference = load_reference(args.ref).agent

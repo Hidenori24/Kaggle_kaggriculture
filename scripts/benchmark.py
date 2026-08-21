@@ -48,6 +48,9 @@ def load_policy(name):
     if name == "replay":
         from kaggriculture_agent.replay_policy import agent
         return agent
+    if name == "legacy":
+        from kaggriculture_agent.legacy_replay_policy import agent
+        return agent
     if name == "full":
         from kaggriculture_agent.full_strategy import choose_action
         return choose_action
@@ -79,6 +82,12 @@ def load_policy(name):
         return agent
     if name == "redundant-feed":
         from kaggriculture_agent.redundant_feed_policy import agent
+        return agent
+    if name == "daily-economic":
+        from kaggriculture_agent.daily_economic_policy import agent
+        return agent
+    if name == "input-budget":
+        from kaggriculture_agent.input_budget_policy import agent
         return agent
     raise ValueError(f"unknown policy: {name}")
 
@@ -173,7 +182,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--opponent", help="run only this recorded opponent")
     parser.add_argument(
-        "--policy", choices=("replay", "full", "baseline", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed"), default="replay",
+        "--policy", choices=("replay", "legacy", "full", "baseline", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget"), default="replay",
         help="local policy to benchmark; replay is the production default",
     )
     parser.add_argument("--json", action="store_true", help="emit raw JSON")
