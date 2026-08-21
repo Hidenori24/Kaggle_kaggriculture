@@ -53,7 +53,17 @@ def load_reference(ref):
     tmp = Path(tempfile.mkdtemp()) / "reference_policy.py"
     # The submission branch's copy imports a sibling module; the agent path
     # does not need it, so drop the import rather than vendoring the package.
-    tmp.write_text(blob.replace("from .economic_shadow import forecast_economy", ""))
+    tmp.write_text(
+        blob
+        .replace(
+            "from .economic_shadow import forecast_economy",
+            "from kaggriculture_agent.economic_shadow import forecast_economy",
+        )
+        .replace(
+            "from .adaptive_economy import apply_adaptive_economy",
+            "from kaggriculture_agent.adaptive_economy import apply_adaptive_economy",
+        )
+    )
     spec = importlib.util.spec_from_file_location("reference_policy", tmp)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -64,7 +74,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ref", default="origin/main", help="reference git revision")
     parser.add_argument(
-        "--policy", choices=("replay", "stateful", "macro", "local", "late"), default="replay",
+        "--policy", choices=("replay", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed"), default="replay",
         help="working-tree challenger policy",
     )
     parser.add_argument("--seeds", type=int, default=12)
@@ -78,6 +88,14 @@ def main():
         from kaggriculture_agent.local_jobs_policy import agent as candidate
     elif args.policy == "late":
         from kaggriculture_agent.late_harvest_policy import agent as candidate
+    elif args.policy == "resync":
+        from kaggriculture_agent.resync_policy import agent as candidate
+    elif args.policy == "pressure":
+        from kaggriculture_agent.pressure_order_policy import agent as candidate
+    elif args.policy == "wheat-budget":
+        from kaggriculture_agent.wheat_budget_policy import agent as candidate
+    elif args.policy == "redundant-feed":
+        from kaggriculture_agent.redundant_feed_policy import agent as candidate
     else:
         from kaggriculture_agent.replay_policy import agent as candidate
     reference = load_reference(args.ref).agent
