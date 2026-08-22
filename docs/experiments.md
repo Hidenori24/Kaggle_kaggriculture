@@ -373,3 +373,9 @@ full action-layer differences between the 1942.6 replay and the later
 - 先行して試したMELON→WHEATの`crop_mix_policy.py`は保守閾値200で直接対決1勝3敗・平均差ほぼ0%、CARROTへの小規模置換`carrot_mix_policy.py`も1勝1敗・平均差+0.01%で、敵対テープの8戦平均は現行と同じ148,901.1。どちらも実質的な改善ではないため不採用。
 - `analyze_episode_economics.py`を追加し、共有JSONを実行時だけ読み込んで日別の資金・shed・動物・土地・市場価格・作物配分を比較できるようにした。JSON本体はリポジトリへ保存しない。
 - 結論: 1200点の壁は、CARROTの単発切替や市場注文の局所overrideでは越えられない。次に試すべきは、短期作物の購入・植付け・収穫・売却、飼料、追加動物、作業者ルートを一体化した別policyであり、現行replayを直接対決で上回らない限り提出しない。今回も`stable`・`main`・`submission`は変更していない。
+
+## 2026-08-22: urgent local jobs and strawberry mix challengers
+
+- `urgent_jobs_policy.py`は、固定ルートが移動またはPASSを出した時に、現在地の収穫・散水・世話だけを観測状態から差し替える候補。単体テストは成功したが、HEADとの直接対決は0勝2敗・平均−99.42%。広い局所修正でも固定ルートとの同期を壊すため却下。
+- `strawberry_mix_policy.py`は、最初のSTRAWBERRY種8個を、成長日あたりのWHEAT収益が15%以上高い場合だけ、数量を完全一致させてWHEATへ変更する候補。直接対決は1勝1敗・平均+0.01%で、改善とは言えないため却下。
+- いずれもproduction entrypointには接続していない。現時点の結論は、固定テープへ局所的に仕事や作物を足す方式ではなく、資金・短周期作物・動物数・給餌・作業者数を同時に再計画する必要がある、というもの。`stable`・`main`・`submission`は変更していない。

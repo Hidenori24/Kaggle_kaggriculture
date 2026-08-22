@@ -98,6 +98,12 @@ def load_policy(name):
     if name == "input-budget":
         from kaggriculture_agent.input_budget_policy import agent
         return agent
+    if name == "urgent-jobs":
+        from kaggriculture_agent.urgent_jobs_policy import agent
+        return agent
+    if name == "strawberry-mix":
+        from kaggriculture_agent.strawberry_mix_policy import agent
+        return agent
     raise ValueError(f"unknown policy: {name}")
 
 
@@ -191,7 +197,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--opponent", help="run only this recorded opponent")
     parser.add_argument(
-        "--policy", choices=("replay", "legacy", "crop-mix", "carrot-mix", "carrot-lane", "full", "baseline", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget"), default="replay",
+        "--policy", choices=("replay", "legacy", "crop-mix", "carrot-mix", "carrot-lane", "full", "baseline", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget", "urgent-jobs", "strawberry-mix"), default="replay",
         help="local policy to benchmark; replay is the production default",
     )
     parser.add_argument("--json", action="store_true", help="emit raw JSON")

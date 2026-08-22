@@ -78,7 +78,7 @@ def main():
         help="load the candidate policy from this git revision instead of the working tree",
     )
     parser.add_argument(
-        "--policy", choices=("replay", "legacy", "crop-mix", "carrot-mix", "carrot-lane", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget"), default="replay",
+        "--policy", choices=("replay", "legacy", "crop-mix", "carrot-mix", "carrot-lane", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget", "urgent-jobs", "strawberry-mix"), default="replay",
         help="working-tree challenger policy",
     )
     parser.add_argument("--seeds", type=int, default=12)
@@ -112,6 +112,10 @@ def main():
         from kaggriculture_agent.daily_economic_policy import agent as candidate
     elif args.policy == "input-budget":
         from kaggriculture_agent.input_budget_policy import agent as candidate
+    elif args.policy == "urgent-jobs":
+        from kaggriculture_agent.urgent_jobs_policy import agent as candidate
+    elif args.policy == "strawberry-mix":
+        from kaggriculture_agent.strawberry_mix_policy import agent as candidate
     else:
         from kaggriculture_agent.replay_policy import agent as candidate
     reference = load_reference(args.ref).agent
