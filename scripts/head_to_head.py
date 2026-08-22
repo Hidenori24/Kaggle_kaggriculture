@@ -78,8 +78,8 @@ def main():
         help="load the candidate policy from this git revision instead of the working tree",
     )
     parser.add_argument(
-        "--policy", choices=("replay", "legacy", "crop-mix", "carrot-mix", "carrot-lane", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget", "urgent-jobs", "strawberry-mix"), default="replay",
-        help="working-tree challenger policy",
+        "--policy", choices=("replay", "legacy", "crop-mix", "carrot-mix", "carrot-lane", "stateful", "macro", "local", "late", "resync", "pressure", "wheat-budget", "redundant-feed", "daily-economic", "input-budget", "urgent-jobs", "strawberry-mix", "replanned", "replanned-logistics", "job-queue", "strawberry-all-mix"), default="replay",
+        help="working-tree challenger policy; includes the experimental replanned policies",
     )
     parser.add_argument("--seeds", type=int, default=12)
     args = parser.parse_args()
@@ -116,6 +116,14 @@ def main():
         from kaggriculture_agent.urgent_jobs_policy import agent as candidate
     elif args.policy == "strawberry-mix":
         from kaggriculture_agent.strawberry_mix_policy import agent as candidate
+    elif args.policy == "replanned":
+        from kaggriculture_agent.replanned_strategy import choose_action as candidate
+    elif args.policy == "replanned-logistics":
+        from kaggriculture_agent.replanned_logistics_strategy import choose_action as candidate
+    elif args.policy == "job-queue":
+        from kaggriculture_agent.job_queue_strategy import choose_action as candidate
+    elif args.policy == "strawberry-all-mix":
+        from kaggriculture_agent.strawberry_all_mix_policy import agent as candidate
     else:
         from kaggriculture_agent.replay_policy import agent as candidate
     reference = load_reference(args.ref).agent
